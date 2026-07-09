@@ -168,3 +168,37 @@ test('detect() runs the full battery and sorts critical first', () => {
     assert.ok(order[flags[k - 1].severity] <= order[flags[k].severity]);
   }
 });
+
+test('blame report renders in Japanese with structured flag params', async () => {
+  const { blameReport } = await import('../src/report.js');
+  const lines = [];
+  let i = 0;
+  for (let rep = 0; rep < 4; rep++) {
+    lines.push(assistantLine(i, 'msg_' + i, [
+      { type: 'tool_use', id: 'e' + i, name: 'Edit', input: { file_path: '/same.js' } },
+    ]));
+    lines.push(toolResultLine(i + 100, 'e' + i));
+    i++;
+    lines.push(assistantLine(i, 'msg_' + i, [
+      { type: 'tool_use', id: 'b' + i, name: 'Bash', input: { command: 'npm test' } },
+    ]));
+    lines.push(toolResultLine(i + 100, 'b' + i, { isError: true, text: 'FAIL' }));
+    i++;
+  }
+  const model = parseSessionText(jsonl(lines));
+  const flags = detect(model);
+  const ja = blameReport(model, flags, 'ja');
+  assert.match(ja, /フライトレポート/);
+  assert.match(ja, /ツールループ ×4/);
+  assert.match(ja, /ターン数/);
+  const en = blameReport(model, flags, 'en');
+  assert.match(en, /Flight report/);
+  assert.match(en, /Tool loop ×4/);
+});
+
+test('resolveLang picks ja from env-style values', async () => {
+  const { resolveLang } = await import('../src/i18n.js');
+  assert.equal(resolveLang('ja'), 'ja');
+  assert.equal(resolveLang('ja_JP.UTF-8'), 'ja');
+  assert.equal(resolveLang('en_US.UTF-8'), 'en');
+});

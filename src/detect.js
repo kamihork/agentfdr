@@ -59,6 +59,7 @@ export function detectToolLoops(model) {
             severity: 'critical',
             title: `Tool loop ×${repeats}`,
             detail: `Repeated ${repeats}× (${span} calls): ${gram}`,
+            params: { repeats, span, gram },
             turnStart: seq[i].turn,
             turnEnd: seq[i + span - 1].turn,
           });
@@ -94,6 +95,7 @@ export function detectErrorStreaks(model) {
           severity: 'critical',
           title: `${len} consecutive tool errors`,
           detail: `Starting with ${seq[start].sig}`,
+          params: { count: len, firstSig: seq[start].sig },
           turnStart: seq[start].turn,
           turnEnd: seq[i - 1].turn,
         });
@@ -117,6 +119,7 @@ export function detectContextBloat(model) {
           severity: 'warning',
           title: `Huge tool result (${Math.round(call.result.chars / 1000)}k chars)`,
           detail: `${call.name}: ${call.summary}`,
+          params: { kchars: Math.round(call.result.chars / 1000), name: call.name, summary: call.summary },
           turnStart: turn.index,
           turnEnd: turn.index,
         });
@@ -139,6 +142,7 @@ export function detectTokenSpikes(model) {
         severity: 'warning',
         title: `Context jumped +${Math.round((cur - prev) / 1000)}k tokens`,
         detail: `${Math.round(prev / 1000)}k → ${Math.round(cur / 1000)}k in one turn`,
+        params: { fromK: Math.round(prev / 1000), toK: Math.round(cur / 1000), deltaK: Math.round((cur - prev) / 1000) },
         turnStart: main[i].index,
         turnEnd: main[i].index,
       });
@@ -163,6 +167,7 @@ export function detectCacheThrash(model) {
           severity: 'warning',
           title: `${i - start} turns with zero cache hits`,
           detail: 'Full input re-read each turn — check for context churn',
+          params: { count: i - start },
           turnStart: main[start].index,
           turnEnd: main[i - 1].index,
         });
@@ -195,6 +200,7 @@ export function detectFileChurn(model) {
         severity: 'warning',
         title: `Same file edited ${c.n}×`,
         detail: path,
+        params: { count: c.n, path },
         turnStart: c.first,
         turnEnd: c.last,
       });

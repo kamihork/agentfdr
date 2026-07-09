@@ -3,6 +3,7 @@ import { parseSessionFile, probeTitle } from './parser.js';
 import { detect } from './detect.js';
 import { blameReport, fmtMs } from './report.js';
 import { startServer, openInBrowser } from './server.js';
+import { resolveLang, t } from './i18n.js';
 
 const HELP = `agentfdr — flight data recorder for local coding agents
 
@@ -15,26 +16,32 @@ Usage:
 [session] is a session id, an id prefix, or a path to a transcript .jsonl.
 
 Options:
-  --port <n>      Port for \`open\` (default 4477)
+  --port <n>      Port for \`open\` (default 4477; next free port if taken)
   --no-browser    Don't auto-open the browser
   --json          Machine-readable output (list, blame)
+  --lang <code>   Output language: en, ja (default: auto from LANG)
 
 Data source: ~/.claude/projects (override with AGENTFDR_CLAUDE_DIR)`;
+
+const VALUE_FLAGS = ['--port', '--lang'];
 
 export async function main(argv) {
   const args = argv.slice(2);
   const flags = new Set(args.filter((a) => a.startsWith('--')));
-  const positional = args.filter((a) => !a.startsWith('--') && a !== portValue(args));
+  const values = new Set(VALUE_FLAGS.map((f) => flagValue(args, f)).filter(Boolean));
+  const positional = args.filter((a) => !a.startsWith('--') && !values.has(a));
   const cmd = positional[0] ?? 'open';
   const ref = positional[1];
+  const lang = resolveLang(flagValue(args, '--lang'));
+  const port = Number(flagValue(args, '--port') ?? 4477);
 
   switch (cmd) {
     case 'list':
-      return cmdList(flags.has('--json'));
+      return cmdList(flags.has('--json'), lang);
     case 'open':
-      return cmdOpen(ref, Number(portValue(args) ?? 4477), !flags.has('--no-browser'));
+      return cmdOpen(ref, port, !flags.has('--no-browser'));
     case 'blame':
-      return cmdBlame(ref, flags.has('--json'));
+      return cmdBlame(ref, flags.has('--json'), lang);
     case 'stats':
       return cmdStats();
     case 'help':
@@ -44,47 +51,49 @@ export async function main(argv) {
       return;
     default:
       // Bare session ref: `agentfdr 35cb18` == `agentfdr open 35cb18`
-      return cmdOpen(cmd, Number(portValue(args) ?? 4477), !flags.has('--no-browser'));
+      return cmdOpen(cmd, port, !flags.has('--no-browser'));
   }
 }
 
-function portValue(args) {
-  const i = args.indexOf('--port');
+function flagValue(args, name) {
+  const i = args.indexOf(name);
   return i !== -1 ? args[i + 1] : undefined;
 }
 
-function cmdList(asJson) {
+function cmdList(asJson, lang) {
+  const s = t(lang);
   const projects = listProjects();
   if (asJson) {
     console.log(JSON.stringify(projects, null, 2));
     return;
   }
   if (!projects.length) {
-    console.log(`No sessions found under ${projectsRoot()}`);
+    console.log(s.noSessions(projectsRoot()));
     return;
   }
   for (const p of projects) {
     console.log(`\n${p.slug}`);
-    for (const s of p.sessions.slice(0, 10)) {
-      const title = probeTitle(s.file) ?? '(untitled)';
-      const when = new Date(s.mtimeMs).toISOString().slice(0, 16).replace('T', ' ');
-      const mb = (s.size / 1024 / 1024).toFixed(1);
-      console.log(`  ${s.id.slice(0, 8)}  ${when}  ${mb.padStart(5)}MB  ${title}`);
+    for (const sess of p.sessions.slice(0, 10)) {
+      const title = probeTitle(sess.file) ?? s.untitled;
+      const when = new Date(sess.mtimeMs).toISOString().slice(0, 16).replace('T', ' ');
+      const mb = (sess.size / 1024 / 1024).toFixed(1);
+      console.log(`  ${sess.id.slice(0, 8)}  ${when}  ${mb.padStart(5)}MB  ${title}`);
     }
   }
-  console.log('\nOpen one with: agentfdr open <id-prefix>');
+  console.log('\n' + s.openWith);
 }
 
 async function cmdOpen(ref, port, browse) {
-  const { file, id } = resolveSession(ref);
-  const { url } = await startServer({ port, initialSession: id });
+  const { id } = resolveSession(ref);
+  const { url, port: boundPort } = await startServer({ port, initialSession: id });
+  if (boundPort !== port) console.log(`agentfdr: port ${port} in use, using ${boundPort}`);
   console.log(`agentfdr: recording deck at ${url}`);
   console.log(`          session ${id}`);
   console.log(`          (ctrl-c to stop)`);
   if (browse) openInBrowser(url);
 }
 
-function cmdBlame(ref, asJson) {
+function cmdBlame(ref, asJson, lang) {
   const { file } = resolveSession(ref);
   const model = parseSessionFile(file);
   const flags = detect(model);
@@ -92,7 +101,7 @@ function cmdBlame(ref, asJson) {
     console.log(JSON.stringify({ session: model.session, totals: model.totals, flags }, null, 2));
     return;
   }
-  console.log(blameReport(model, flags));
+  console.log(blameReport(model, flags, lang));
 }
 
 function cmdStats() {

@@ -21,12 +21,25 @@ export function startServer({ port = 4477, initialSession = null } = {}) {
     }
   });
 
+  // If the requested port is taken (a previous viewer still running), walk up
+  // to the next free one instead of dying with EADDRINUSE.
   return new Promise((resolvePromise, reject) => {
-    server.on('error', reject);
-    server.listen(port, '127.0.0.1', () => {
-      const url = `http://127.0.0.1:${port}/${initialSession ? `#${initialSession}` : ''}`;
-      resolvePromise({ server, url, port });
+    let attempt = port;
+    const tryListen = () => {
+      server.listen(attempt, '127.0.0.1', () => {
+        const url = `http://127.0.0.1:${attempt}/${initialSession ? `#${initialSession}` : ''}`;
+        resolvePromise({ server, url, port: attempt });
+      });
+    };
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE' && attempt < port + 10) {
+        attempt++;
+        setImmediate(tryListen);
+      } else {
+        reject(err);
+      }
     });
+    tryListen();
   });
 
   function route(req, res) {

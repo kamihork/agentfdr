@@ -33,6 +33,7 @@
     --status-critical: #d03b3b;
     --status-warning: #fab219;
     --wash: rgba(11, 11, 11, 0.05);
+    --select: rgba(42, 120, 214, 0.14);
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -57,6 +58,7 @@
       --ctx-3: #184f95;
       --out: #199e70;
       --wash: rgba(255, 255, 255, 0.07);
+      --select: rgba(57, 135, 229, 0.20);
     }
   }
   :root[data-theme="light"] {
@@ -65,7 +67,7 @@
     --tool-shell: #2a78d6; --tool-write: #1baf7a; --tool-read: #eda100; --tool-search: #008300;
     --tool-agent: #4a3aa7; --tool-web: #e87ba4; --tool-mcp: #eb6834; --tool-other: #898781;
     --ctx-1: #86b6ef; --ctx-2: #2a78d6; --ctx-3: #104281; --out: #1baf7a;
-    --wash: rgba(11,11,11,0.05);
+    --wash: rgba(11,11,11,0.05); --select: rgba(42,120,214,0.14);
   }
   :root[data-theme="dark"] {
     --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7;
@@ -73,7 +75,7 @@
     --tool-shell: #3987e5; --tool-write: #199e70; --tool-read: #c98500; --tool-search: #008300;
     --tool-agent: #9085e9; --tool-web: #d55181; --tool-mcp: #d95926; --tool-other: #898781;
     --ctx-1: #86b6ef; --ctx-2: #3987e5; --ctx-3: #184f95; --out: #199e70;
-    --wash: rgba(255,255,255,0.07);
+    --wash: rgba(255,255,255,0.07); --select: rgba(57,135,229,0.20);
   }
 
   * { box-sizing: border-box; margin: 0; }
@@ -96,8 +98,12 @@
   select { max-width: 480px; }
   button:hover { background: var(--wash); }
   .spacer { flex: 1; }
-  #meta { color: var(--text-secondary); font-size: 13px; margin-bottom: 16px; }
-  #meta code { color: var(--text-muted); }
+  #meta { color: var(--text-secondary); font-size: 13px; margin-bottom: 4px; }
+  #hint { color: var(--text-muted); font-size: 11.5px; margin-bottom: 14px; }
+  #hint kbd {
+    font: 11px ui-monospace, monospace; border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 4px; padding: 0 4px; margin: 0 1px;
+  }
 
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
   .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
@@ -113,6 +119,7 @@
     border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer;
   }
   .flagchip:hover { background: var(--wash); }
+  .flagchip.active { outline: 2px solid var(--ctx-2); }
   .flagchip .ico { font-size: 11px; }
   .flagchip.critical .ico { color: var(--status-critical); }
   .flagchip.warning .ico { color: var(--status-warning); }
@@ -130,19 +137,21 @@
     position: fixed; z-index: 10; pointer-events: none; display: none;
     background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
     box-shadow: 0 6px 24px rgba(0,0,0,0.18); padding: 10px 12px; font-size: 12.5px;
-    max-width: 340px;
+    max-width: 360px;
   }
   #tooltip .tt-title { font-weight: 600; margin-bottom: 6px; }
   #tooltip .row { display: flex; align-items: baseline; gap: 8px; }
   #tooltip .row .k { width: 14px; height: 3px; border-radius: 2px; flex: none; align-self: center; }
   #tooltip .row .v { font-weight: 600; }
   #tooltip .row .l { color: var(--text-secondary); }
+  #tooltip .prompt { color: var(--text-secondary); border-top: 1px solid var(--grid); margin-top: 6px; padding-top: 6px; }
   #tooltip .flagline.critical { color: var(--status-critical); }
   #tooltip .flagline.warning { color: var(--status-warning); }
 
-  #detail .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  #detail .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
   #detail .head .t { font-size: 15px; font-weight: 650; }
   #detail .head .m { color: var(--text-muted); font-size: 12.5px; }
+  #detail .head button { padding: 2px 10px; font-size: 12.5px; }
   #detail .atext {
     white-space: pre-wrap; color: var(--text-secondary); font-size: 13px;
     border-left: 2px solid var(--grid); padding-left: 10px; margin: 10px 0; max-height: 200px; overflow-y: auto;
@@ -164,27 +173,29 @@
 </head>
 <body>
   <header>
-    <h1>AgentFDR <span>/ flight recorder</span></h1>
+    <h1>AgentFDR <span data-i18n="subtitle">/ flight recorder</span></h1>
     <select id="sessionSelect" aria-label="Session"></select>
     <div class="spacer"></div>
-    <button id="tableToggle" aria-pressed="false">Table view</button>
-    <button id="themeToggle" title="Toggle theme">◐</button>
+    <button id="tableToggle" aria-pressed="false"></button>
+    <button id="langToggle" title="Language / 言語"></button>
+    <button id="themeToggle" title="Theme">◐</button>
   </header>
   <div id="meta"></div>
-  <div id="empty" class="hidden">No sessions found under <code>~/.claude/projects</code>.</div>
+  <div id="hint"></div>
+  <div id="empty" class="hidden"></div>
 
   <div id="deck" class="hidden">
     <div class="tiles" id="tiles"></div>
     <div id="flagstrip"></div>
 
     <div class="card" id="timelineCard">
-      <h2 id="tlTitle">Timeline</h2>
+      <h2 id="tlTitle"></h2>
       <div class="lanes" id="lanes"></div>
       <div id="legend"></div>
     </div>
 
     <div class="card hidden" id="tableCard">
-      <h2>Turns</h2>
+      <h2 id="tableTitle"></h2>
       <div style="overflow-x:auto"><table id="turnsTable"></table></div>
     </div>
 
@@ -196,9 +207,113 @@
 <script>
 'use strict';
 
+// ---------- i18n ----------
+const I18N = {
+  en: {
+    subtitle: '/ flight recorder',
+    tableView: 'Table view',
+    timeline: (n) => `Timeline — ${n} turns`,
+    turnsTable: 'Turns',
+    empty: 'No sessions found under ~/.claude/projects.',
+    hint: 'click a turn to dissect · <kbd>←</kbd><kbd>→</kbd> move · <kbd>Esc</kbd> close',
+    tiles: { turns: 'Turns', calls: 'Tool calls', out: 'Output tokens', peak: 'Context peak', flags: 'Anomalies' },
+    subs: {
+      prompts: (n) => `${n} prompts`, errors: (n) => `${n} errors`, noErrors: 'no errors',
+      fresh: (k) => `in ${k} fresh`, cacheTotal: (k) => `cache-read ${k} total`,
+      critical: (n) => `${n} critical`, noneCritical: 'none critical',
+    },
+    lanes: { tools: 'TOOLS', ctx: 'CONTEXT TOKENS', out: 'OUTPUT TOKENS' },
+    legendGroups: { tools: 'TOOLS', tokens: 'TOKENS' },
+    toolGroups: { shell: 'Shell', write: 'Edit/Write', read: 'Read', search: 'Search', agent: 'Subagent', web: 'Web', mcp: 'MCP', other: 'Other' },
+    tokenKeys: { cacheRead: 'cache read', cacheWrite: 'cache write', fresh: 'fresh input', out: 'output' },
+    tt: {
+      turn: (i) => `Turn ${i}`, subagent: 'subagent', context: (c) => `context (${c} cached)`,
+      outTokens: 'output tokens', stop: (r) => `stop: ${r}`, more: (n) => `… +${n} more calls`,
+      error: '⚠ error', prompt: '▼ prompt: ',
+    },
+    detail: {
+      turn: (i) => `Turn ${i}`, subagent: 'subagent sidechain', stop: (r) => `stop: ${r}`,
+      usage: { input: 'fresh input', cacheRead: 'cache read', cacheWrite: 'cache write', out: 'output', thinking: 'thinking chars' },
+      cols: ['tool', 'input', 'duration', 'result'], chars: 'chars', snippet: 'snippet',
+      noResult: '(no result recorded)', error: 'ERROR ', prev: '‹ prev', next: 'next ›', close: '✕',
+    },
+    tableCols: ['turn', 'time', 'tools', 'context', 'output', 'errors', 'flags'],
+    compact: '⟲ compact',
+    flags: {
+      'loop': (p) => `Tool loop ×${p.repeats}`,
+      'error-streak': (p) => `${p.count} consecutive tool errors`,
+      'context-bloat': (p) => `Huge tool result (${p.kchars}k chars)`,
+      'token-spike': (p) => `Context +${p.deltaK}k in one turn`,
+      'cache-thrash': (p) => `${p.count} turns with zero cache hits`,
+      'file-churn': (p) => `Same file edited ${p.count}×`,
+    },
+    flagDetails: {
+      'loop': (p) => `Repeated ${p.repeats}× (${p.span} calls): ${p.gram}`,
+      'error-streak': (p) => `Starting with ${p.firstSig}`,
+      'context-bloat': (p) => `${p.name}: ${p.summary}`,
+      'token-spike': (p) => `${p.fromK}k → ${p.toK}k`,
+      'cache-thrash': () => 'Full input re-read each turn',
+      'file-churn': (p) => p.path,
+    },
+  },
+  ja: {
+    subtitle: '/ フライトレコーダー',
+    tableView: 'テーブル表示',
+    timeline: (n) => `タイムライン — ${n}ターン`,
+    turnsTable: 'ターン一覧',
+    empty: '~/.claude/projects にセッションが見つかりません。',
+    hint: 'ターンをクリックで解剖 · <kbd>←</kbd><kbd>→</kbd> 移動 · <kbd>Esc</kbd> 閉じる',
+    tiles: { turns: 'ターン数', calls: 'ツール呼び出し', out: '出力トークン', peak: 'コンテキスト最大', flags: '異常検知' },
+    subs: {
+      prompts: (n) => `プロンプト ${n}件`, errors: (n) => `エラー ${n}件`, noErrors: 'エラーなし',
+      fresh: (k) => `新規入力 ${k}`, cacheTotal: (k) => `キャッシュ読取 計${k}`,
+      critical: (n) => `重大 ${n}件`, noneCritical: '重大なし',
+    },
+    lanes: { tools: 'ツール', ctx: 'コンテキストトークン', out: '出力トークン' },
+    legendGroups: { tools: 'ツール', tokens: 'トークン' },
+    toolGroups: { shell: 'シェル', write: '編集/書込', read: '読取', search: '検索', agent: 'サブエージェント', web: 'Web', mcp: 'MCP', other: 'その他' },
+    tokenKeys: { cacheRead: 'キャッシュ読取', cacheWrite: 'キャッシュ書込', fresh: '新規入力', out: '出力' },
+    tt: {
+      turn: (i) => `ターン ${i}`, subagent: 'サブエージェント', context: (c) => `コンテキスト(うちキャッシュ ${c})`,
+      outTokens: '出力トークン', stop: (r) => `停止理由: ${r}`, more: (n) => `… ほか${n}件の呼び出し`,
+      error: '⚠ エラー', prompt: '▼ プロンプト: ',
+    },
+    detail: {
+      turn: (i) => `ターン ${i}`, subagent: 'サブエージェント側鎖', stop: (r) => `停止理由: ${r}`,
+      usage: { input: '新規入力', cacheRead: 'キャッシュ読取', cacheWrite: 'キャッシュ書込', out: '出力', thinking: '思考文字数' },
+      cols: ['ツール', '入力', '所要時間', '結果'], chars: '文字', snippet: 'スニペット',
+      noResult: '(結果の記録なし)', error: 'エラー ', prev: '‹ 前', next: '次 ›', close: '✕',
+    },
+    tableCols: ['ターン', '時刻', 'ツール', 'コンテキスト', '出力', 'エラー', 'フラグ'],
+    compact: '⟲ 圧縮',
+    flags: {
+      'loop': (p) => `ツールループ ×${p.repeats}`,
+      'error-streak': (p) => `エラーが${p.count}回連続`,
+      'context-bloat': (p) => `巨大なツール結果(${p.kchars}k文字)`,
+      'token-spike': (p) => `コンテキスト+${p.deltaK}k/ターン`,
+      'cache-thrash': (p) => `${p.count}ターン キャッシュヒットなし`,
+      'file-churn': (p) => `同一ファイルを${p.count}回編集`,
+    },
+    flagDetails: {
+      'loop': (p) => `同一パターンを${p.repeats}回反復(${p.span}回の呼び出し): ${p.gram}`,
+      'error-streak': (p) => `起点: ${p.firstSig}`,
+      'context-bloat': (p) => `${p.name}: ${p.summary}`,
+      'token-spike': (p) => `${p.fromK}k → ${p.toK}k`,
+      'cache-thrash': () => '毎ターン全入力を再読込',
+      'file-churn': (p) => p.path,
+    },
+  },
+};
+
+let LANG = localStorage.getItem('agentfdr.lang') || (navigator.language?.startsWith('ja') ? 'ja' : 'en');
+const T = () => I18N[LANG] ?? I18N.en;
+const flagTitle = (f) => (T().flags[f.type] && f.params ? T().flags[f.type](f.params) : f.title);
+const flagDetail = (f) => (T().flagDetails[f.type] && f.params ? T().flagDetails[f.type](f.params) : f.detail);
+
 // ---------- state ----------
 let MODEL = null;
 let selectedTurn = null;
+let TL = null; // geometry of the current timeline render, for the selection overlay
 
 const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -218,10 +333,6 @@ function toolGroup(name) {
   return 'other';
 }
 const groupColor = (g) => css('--tool-' + g);
-const GROUP_LABELS = {
-  shell: 'Shell', write: 'Edit/Write', read: 'Read', search: 'Search',
-  agent: 'Subagent', web: 'Web', mcp: 'MCP', other: 'Other',
-};
 
 const kTok = (n) => n >= 1000 ? (n >= 100000 ? Math.round(n / 1000) + 'k' : (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k') : String(n);
 const fmtMs = (ms) => {
@@ -236,11 +347,21 @@ const hhmm = (ts) => ts ? new Date(ts).toTimeString().slice(0, 8) : '';
 // ---------- boot ----------
 init();
 async function init() {
+  const savedTheme = localStorage.getItem('agentfdr.theme');
+  if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+
   $('themeToggle').addEventListener('click', () => {
     const root = document.documentElement;
     const dark = matchMedia('(prefers-color-scheme: dark)').matches;
     const cur = root.dataset.theme || (dark ? 'dark' : 'light');
     root.dataset.theme = cur === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('agentfdr.theme', root.dataset.theme);
+    if (MODEL) render();
+  });
+  $('langToggle').addEventListener('click', () => {
+    LANG = LANG === 'ja' ? 'en' : 'ja';
+    localStorage.setItem('agentfdr.lang', LANG);
+    applyChrome();
     if (MODEL) render();
   });
   $('tableToggle').addEventListener('click', () => {
@@ -248,6 +369,25 @@ async function init() {
     card.classList.toggle('hidden');
     $('tableToggle').setAttribute('aria-pressed', String(!card.classList.contains('hidden')));
   });
+
+  document.addEventListener('keydown', (e) => {
+    if (!MODEL || /^(SELECT|INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const delta = e.key === 'ArrowRight' ? 1 : -1;
+      const max = MODEL.turns.length - 1;
+      selectedTurn = selectedTurn == null ? (delta > 0 ? 0 : max) : Math.max(0, Math.min(max, selectedTurn + delta));
+      renderDetail();
+      updateSelection();
+      scrollToTurn(selectedTurn);
+    } else if (e.key === 'Escape') {
+      selectedTurn = null;
+      renderDetail();
+      updateSelection();
+    }
+  });
+
+  applyChrome();
 
   const res = await fetch('/api/sessions');
   const { projects } = await res.json();
@@ -272,6 +412,17 @@ async function init() {
   load(first);
 }
 
+/** Static chrome strings (buttons, hints) — everything outside render(). */
+function applyChrome() {
+  document.documentElement.lang = LANG;
+  document.querySelector('[data-i18n="subtitle"]').textContent = T().subtitle;
+  $('tableToggle').textContent = T().tableView;
+  $('langToggle').textContent = LANG === 'ja' ? 'EN' : '日本語';
+  $('empty').textContent = T().empty;
+  $('hint').innerHTML = T().hint; // trusted constant, contains <kbd>
+  $('tableTitle').textContent = T().turnsTable;
+}
+
 async function load(id) {
   location.hash = id;
   const res = await fetch('/api/session?id=' + encodeURIComponent(id));
@@ -289,6 +440,7 @@ function render() {
   renderTimeline();
   renderTable();
   renderDetail();
+  updateSelection();
 }
 
 function renderMeta() {
@@ -297,7 +449,7 @@ function renderMeta() {
   el.textContent = '';
   const bits = [
     s.title, s.model, s.cwd && s.cwd + (s.gitBranch ? ' (' + s.gitBranch + ')' : ''),
-    s.startedAt && new Date(s.startedAt).toLocaleString(), t.wallMs != null && 'wall ' + fmtMs(t.wallMs),
+    s.startedAt && new Date(s.startedAt).toLocaleString(), t.wallMs != null && fmtMs(t.wallMs),
   ].filter(Boolean);
   el.textContent = bits.join('  ·  ');
 }
@@ -305,14 +457,15 @@ function renderMeta() {
 function renderTiles() {
   const t = MODEL.totals;
   const flags = MODEL.flags;
+  const L = T();
   const crit = flags.filter((f) => f.severity === 'critical').length;
   const peak = Math.max(0, ...MODEL.turns.map((tt) => tt.contextTokens));
   const tiles = [
-    ['Turns', String(t.turns), MODEL.prompts.length + ' prompts'],
-    ['Tool calls', String(t.toolCalls), t.toolErrors ? t.toolErrors + ' errors' : 'no errors', t.toolErrors > 0],
-    ['Output tokens', kTok(t.tokens.output), 'in ' + kTok(t.tokens.input + t.tokens.cacheCreation) + ' fresh'],
-    ['Context peak', kTok(peak), 'cache-read ' + kTok(t.tokens.cacheRead) + ' total'],
-    ['Anomalies', String(flags.length), crit ? crit + ' critical' : 'none critical', crit > 0],
+    [L.tiles.turns, String(t.turns), L.subs.prompts(MODEL.prompts.length)],
+    [L.tiles.calls, String(t.toolCalls), t.toolErrors ? L.subs.errors(t.toolErrors) : L.subs.noErrors, t.toolErrors > 0],
+    [L.tiles.out, kTok(t.tokens.output), L.subs.fresh(kTok(t.tokens.input + t.tokens.cacheCreation))],
+    [L.tiles.peak, kTok(peak), L.subs.cacheTotal(kTok(t.tokens.cacheRead))],
+    [L.tiles.flags, String(flags.length), crit ? L.subs.critical(crit) : L.subs.noneCritical, crit > 0],
   ];
   const wrap = $('tiles');
   wrap.textContent = '';
@@ -329,21 +482,31 @@ function renderTiles() {
 function renderFlags() {
   const wrap = $('flagstrip');
   wrap.textContent = '';
-  for (const f of MODEL.flags) {
+  MODEL.flags.forEach((f, fi) => {
     const chip = document.createElement('button');
     chip.className = 'flagchip ' + f.severity;
+    chip.dataset.flag = String(fi);
     add(chip, 'span', 'ico', f.severity === 'critical' ? '●' : '▲');
-    add(chip, 'span', '', f.title);
+    add(chip, 'span', '', flagTitle(f));
     add(chip, 'span', 'range', f.turnStart === f.turnEnd ? 't' + f.turnStart : 't' + f.turnStart + '–' + f.turnEnd);
-    chip.addEventListener('click', () => { selectedTurn = f.turnStart; renderDetail(); scrollToTurn(f.turnStart); });
+    chip.title = flagDetail(f);
+    chip.addEventListener('click', () => {
+      selectedTurn = f.turnStart;
+      renderDetail();
+      updateSelection(f);
+      scrollToTurn(f.turnStart);
+      document.querySelectorAll('.flagchip.active').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+    });
     wrap.appendChild(chip);
-  }
+  });
 }
 
 // The timeline: shared x (turn index), stacked lanes. SVG, no libraries.
 function renderTimeline() {
   const turns = MODEL.turns;
   const lanes = $('lanes');
+  const L = T();
   lanes.textContent = '';
   if (!turns.length) return;
 
@@ -362,25 +525,39 @@ function renderTimeline() {
   const svg = mk('svg', { width, height, viewBox: `0 0 ${width} ${height}`, role: 'img' });
   svg.style.display = 'block';
   const x = (i) => padL + i * colW;
+  TL = { x, barW, colW, yAxis, n };
 
   // lane labels sit in their own header row, clear of the tick gutter
-  laneLabel(svg, 'tools', padL, yTools - 4);
-  laneLabel(svg, 'context tokens', padL, yCtx - 4);
-  laneLabel(svg, 'output tokens', padL, yOut - 4);
+  laneLabel(svg, L.lanes.tools, padL, yTools - 4);
+  laneLabel(svg, L.lanes.ctx, padL, yCtx - 4);
+  laneLabel(svg, L.lanes.out, padL, yOut - 4);
+
+  // selection overlays (kept behind the marks, moved without re-rendering)
+  const selRange = mk('rect', { x: -9999, y: 0, width: 0, height: yAxis, fill: css('--select'), rx: 3 });
+  selRange.id = 'selrange';
+  svg.appendChild(selRange);
+  const selRect = mk('rect', { x: -9999, y: 0, width: colW, height: yAxis, fill: 'none', stroke: css('--ctx-2'), 'stroke-width': 1.5, rx: 3 });
+  selRect.id = 'selrect';
+  svg.appendChild(selRect);
 
   // --- markers lane: compaction + prompts ---
   for (const m of MODEL.metaEvents) {
     if (m.kind !== 'compaction') continue;
     const i = Math.max(0, Math.min(n - 1, (m.afterTurn ?? 0) + 1));
-    svg.appendChild(mk('line', { x1: x(i) - 1, y1: marksH - 6, x2: x(i) - 1, y2: yAxis, stroke: css('--baseline'), 'stroke-width': 1, 'stroke-dasharray': '' }));
+    svg.appendChild(mk('line', { x1: x(i) - 1, y1: marksH - 6, x2: x(i) - 1, y2: yAxis, stroke: css('--baseline'), 'stroke-width': 1 }));
     const t = mk('text', { x: x(i) + 2, y: 12, fill: css('--text-muted'), 'font-size': 10 });
-    t.textContent = '⟲ compact';
+    t.textContent = L.compact;
     svg.appendChild(t);
   }
   for (const p of MODEL.prompts) {
     const i = Math.max(0, Math.min(n - 1, (p.afterTurn ?? -1) + 1));
     const t = mk('text', { x: x(i) + barW / 2, y: 12, fill: css('--text-secondary'), 'font-size': 10, 'text-anchor': 'middle' });
     t.textContent = '▼';
+    t.style.cursor = 'pointer';
+    t.addEventListener('click', () => { selectedTurn = i; renderDetail(); updateSelection(); });
+    const tip = mk('title', {});
+    tip.textContent = p.text.slice(0, 200);
+    t.appendChild(tip);
     svg.appendChild(t);
   }
 
@@ -432,7 +609,6 @@ function renderTimeline() {
       const h = Math.max(1, (v / maxCtx) * (ctxH - 4));
       yCursor -= h;
       svg.appendChild(mk('rect', { x: gx, y: yCursor, width: barW, height: Math.max(0, h - 2), rx: 2, fill: ctxColors[si], opacity: dim }));
-      yCursor -= 0; // 2px gap comes from h-2 above
     });
 
     // output bar (single series, rounded data-end, square baseline)
@@ -463,18 +639,38 @@ function renderTimeline() {
     hit.addEventListener('pointerenter', (e) => { hit.setAttribute('fill', css('--wash')); showTooltip(e, i); });
     hit.addEventListener('pointermove', (e) => showTooltip(e, i));
     hit.addEventListener('pointerleave', () => { hit.setAttribute('fill', 'transparent'); hideTooltip(); });
-    hit.addEventListener('click', () => { selectedTurn = i; renderDetail(); });
+    hit.addEventListener('click', () => { selectedTurn = i; renderDetail(); updateSelection(); });
     svg.appendChild(hit);
   }
 
   lanes.appendChild(svg);
-  $('tlTitle').textContent = `Timeline — ${n} turns`;
+  $('tlTitle').textContent = L.timeline(n);
   renderLegend();
+}
+
+/** Move the selection overlays without rebuilding the SVG. */
+function updateSelection(rangeFlag = null) {
+  if (!TL) return;
+  const selRect = document.getElementById('selrect');
+  const selRange = document.getElementById('selrange');
+  if (!selRect || !selRange) return;
+  if (selectedTurn == null) {
+    selRect.setAttribute('x', -9999);
+  } else {
+    selRect.setAttribute('x', TL.x(selectedTurn) - 1);
+  }
+  if (rangeFlag && rangeFlag.turnEnd > rangeFlag.turnStart) {
+    selRange.setAttribute('x', TL.x(rangeFlag.turnStart) - 1);
+    selRange.setAttribute('width', TL.x(rangeFlag.turnEnd) - TL.x(rangeFlag.turnStart) + TL.colW);
+  } else {
+    selRange.setAttribute('x', -9999);
+    selRange.setAttribute('width', 0);
+  }
 }
 
 function laneLabel(svg, text, x, y) {
   const t = mk('text', { x, y, fill: css('--text-muted'), 'font-size': 10, 'letter-spacing': '0.06em' });
-  t.textContent = text.toUpperCase();
+  t.textContent = text;
   svg.appendChild(t);
 }
 
@@ -491,6 +687,7 @@ function niceTicks(max) {
 
 function renderLegend() {
   const legend = $('legend');
+  const L = T();
   legend.textContent = '';
   // Two rows: tool identities and token segments never share a line.
   const toolsRow = document.createElement('div');
@@ -498,22 +695,22 @@ function renderLegend() {
   const present = new Set();
   for (const t of MODEL.turns) for (const c of t.toolCalls) present.add(toolGroup(c.name));
   const order = [...TOOL_GROUPS.map(([g]) => g), 'other'].filter((g) => present.has(g));
-  groupTitle(toolsRow, 'tools');
-  for (const g of order) key(toolsRow, groupColor(g), GROUP_LABELS[g]);
+  groupTitle(toolsRow, L.legendGroups.tools);
+  for (const g of order) key(toolsRow, groupColor(g), L.toolGroups[g]);
   legend.appendChild(toolsRow);
 
   const tokRow = document.createElement('div');
   tokRow.className = 'legend';
-  groupTitle(tokRow, 'tokens');
-  key(tokRow, css('--ctx-1'), 'cache read');
-  key(tokRow, css('--ctx-2'), 'cache write');
-  key(tokRow, css('--ctx-3'), 'fresh input');
-  key(tokRow, css('--out'), 'output');
+  groupTitle(tokRow, L.legendGroups.tokens);
+  key(tokRow, css('--ctx-1'), L.tokenKeys.cacheRead);
+  key(tokRow, css('--ctx-2'), L.tokenKeys.cacheWrite);
+  key(tokRow, css('--ctx-3'), L.tokenKeys.fresh);
+  key(tokRow, css('--out'), L.tokenKeys.out);
   legend.appendChild(tokRow);
 }
 function groupTitle(row, text) {
   const s = document.createElement('span');
-  s.textContent = text.toUpperCase();
+  s.textContent = text;
   s.style.cssText = 'color:var(--text-muted);font-size:10px;letter-spacing:0.06em;min-width:44px';
   row.appendChild(s);
 }
@@ -531,22 +728,28 @@ function key(parent, color, label) {
 function flagsAt(i) {
   return MODEL.flags.filter((f) => i >= f.turnStart && i <= f.turnEnd);
 }
+function promptBefore(i) {
+  return MODEL.prompts.find((p) => (p.afterTurn ?? -1) + 1 === i);
+}
 
 // ---------- tooltip (values lead, labels follow; line keys) ----------
 function showTooltip(e, i) {
   const t = MODEL.turns[i];
+  const L = T();
   const tt = $('tooltip');
   tt.textContent = '';
-  add(tt, 'div', 'tt-title', 'Turn ' + i + (t.isSidechain ? ' · subagent' : '') + (t.timestamp ? ' · ' + hhmm(t.timestamp) : ''));
+  add(tt, 'div', 'tt-title', L.tt.turn(i) + (t.isSidechain ? ' · ' + L.tt.subagent : '') + (t.timestamp ? ' · ' + hhmm(t.timestamp) : ''));
 
-  row(tt, css('--ctx-2'), kTok(t.contextTokens), 'context (' + kTok(t.usage.cacheRead) + ' cached)');
-  row(tt, css('--out'), kTok(t.usage.output), 'output tokens');
+  row(tt, css('--ctx-2'), kTok(t.contextTokens), L.tt.context(kTok(t.usage.cacheRead)));
+  row(tt, css('--out'), kTok(t.usage.output), L.tt.outTokens);
   for (const c of t.toolCalls.slice(0, 6)) {
-    row(tt, groupColor(toolGroup(c.name)), c.name, (c.summary || '') + (c.result && c.result.isError ? '  ⚠ error' : ''));
+    row(tt, groupColor(toolGroup(c.name)), c.name, (c.summary || '') + (c.result && c.result.isError ? '  ' + L.tt.error : ''));
   }
-  if (t.toolCalls.length > 6) add(tt, 'div', 'l', '… +' + (t.toolCalls.length - 6) + ' more calls');
-  if (t.stopReason) add(tt, 'div', 'l', 'stop: ' + t.stopReason);
-  for (const f of flagsAt(i)) add(tt, 'div', 'flagline ' + f.severity, (f.severity === 'critical' ? '● ' : '▲ ') + f.title);
+  if (t.toolCalls.length > 6) add(tt, 'div', 'l', L.tt.more(t.toolCalls.length - 6));
+  if (t.stopReason) add(tt, 'div', 'l', L.tt.stop(t.stopReason));
+  const p = promptBefore(i);
+  if (p) add(tt, 'div', 'prompt', L.tt.prompt + p.text.slice(0, 120));
+  for (const f of flagsAt(i)) add(tt, 'div', 'flagline ' + f.severity, (f.severity === 'critical' ? '● ' : '▲ ') + flagTitle(f));
 
   tt.style.display = 'block';
   const pad = 14;
@@ -579,14 +782,15 @@ function row(tt, color, value, label) {
 // ---------- table view (the no-hover, no-color path to every value) ----------
 function renderTable() {
   const table = $('turnsTable');
+  const L = T();
   table.textContent = '';
   const thead = document.createElement('tr');
-  for (const [h, num] of [['turn', 1], ['time', 0], ['tools', 0], ['context', 1], ['output', 1], ['errors', 1], ['flags', 0]]) {
+  L.tableCols.forEach((h, ci) => {
     const th = document.createElement('th');
-    if (num) th.className = 'num';
+    if ([0, 3, 4, 5].includes(ci)) th.className = 'num';
     th.textContent = h;
     thead.appendChild(th);
-  }
+  });
   table.appendChild(thead);
   for (const t of MODEL.turns) {
     const tr = document.createElement('tr');
@@ -597,7 +801,7 @@ function renderTable() {
       [kTok(t.contextTokens), 1],
       [kTok(t.usage.output), 1],
       [String(t.toolCalls.filter((c) => c.result && c.result.isError).length || ''), 1],
-      [flagsAt(t.index).map((f) => f.title).join('; '), 0],
+      [flagsAt(t.index).map((f) => flagTitle(f)).join('; '), 0],
     ];
     for (const [v, num] of cells) {
       const td = document.createElement('td');
@@ -606,7 +810,7 @@ function renderTable() {
       tr.appendChild(td);
     }
     tr.style.cursor = 'pointer';
-    tr.addEventListener('click', () => { selectedTurn = t.index; renderDetail(); });
+    tr.addEventListener('click', () => { selectedTurn = t.index; renderDetail(); updateSelection(); });
     table.appendChild(tr);
   }
 }
@@ -614,19 +818,25 @@ function renderTable() {
 // ---------- turn detail ----------
 function renderDetail() {
   const card = $('detail');
+  const L = T();
   if (selectedTurn == null || !MODEL.turns[selectedTurn]) { card.classList.add('hidden'); return; }
   const t = MODEL.turns[selectedTurn];
   card.classList.remove('hidden');
   card.textContent = '';
 
   const head = add(card, 'div', 'head');
-  add(head, 'span', 't', 'Turn ' + t.index);
-  add(head, 'span', 'm', [t.timestamp && new Date(t.timestamp).toLocaleTimeString(), t.model, t.stopReason && 'stop: ' + t.stopReason, t.isSidechain && 'subagent sidechain'].filter(Boolean).join(' · '));
+  add(head, 'span', 't', L.detail.turn(t.index));
+  add(head, 'span', 'm', [t.timestamp && new Date(t.timestamp).toLocaleTimeString(), t.model, t.stopReason && L.detail.stop(t.stopReason), t.isSidechain && L.detail.subagent].filter(Boolean).join(' · '));
+  const spacer = add(head, 'span', '');
+  spacer.style.flex = '1';
+  navBtn(head, L.detail.prev, () => step(-1), selectedTurn > 0);
+  navBtn(head, L.detail.next, () => step(1), selectedTurn < MODEL.turns.length - 1);
+  navBtn(head, L.detail.close, () => { selectedTurn = null; renderDetail(); updateSelection(); }, true);
 
-  add(card, 'div', 'm', '');
   const usage = add(card, 'div', '');
-  usage.style.cssText = 'display:flex;gap:18px;font-size:12.5px;color:var(--text-secondary);margin-bottom:4px';
-  for (const [l, v] of [['fresh input', t.usage.input], ['cache read', t.usage.cacheRead], ['cache write', t.usage.cacheCreation], ['output', t.usage.output], ['thinking chars', t.thinkingChars]]) {
+  usage.style.cssText = 'display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--text-secondary);margin-bottom:4px';
+  const U = L.detail.usage;
+  for (const [l, v] of [[U.input, t.usage.input], [U.cacheRead, t.usage.cacheRead], [U.cacheWrite, t.usage.cacheCreation], [U.out, t.usage.output], [U.thinking, t.thinkingChars]]) {
     const s = document.createElement('span');
     const b = document.createElement('strong');
     b.textContent = kTok(v);
@@ -641,7 +851,7 @@ function renderDetail() {
   if (t.toolCalls.length) {
     const table = document.createElement('table');
     const thr = document.createElement('tr');
-    for (const h of ['tool', 'input', 'duration', 'result']) {
+    for (const h of L.detail.cols) {
       const th = document.createElement('th');
       th.textContent = h;
       thr.appendChild(th);
@@ -667,14 +877,14 @@ function renderDetail() {
         if (c.result.isError) {
           const e = document.createElement('span');
           e.className = 'err';
-          e.textContent = 'ERROR ';
+          e.textContent = L.detail.error;
           tdRes.appendChild(e);
         }
-        tdRes.appendChild(document.createTextNode(kTok(c.result.chars) + ' chars'));
+        tdRes.appendChild(document.createTextNode(kTok(c.result.chars) + ' ' + L.detail.chars));
         if (c.result.snippet) {
           const det = document.createElement('details');
           const sum = document.createElement('summary');
-          sum.textContent = 'snippet';
+          sum.textContent = L.detail.snippet;
           det.appendChild(sum);
           const pre = document.createElement('pre');
           pre.textContent = c.result.snippet;
@@ -682,13 +892,29 @@ function renderDetail() {
           tdRes.appendChild(det);
         }
       } else {
-        tdRes.textContent = '(no result recorded)';
+        tdRes.textContent = L.detail.noResult;
       }
       tr.appendChild(tdRes);
       table.appendChild(tr);
     }
     card.appendChild(table);
   }
+}
+
+function navBtn(parent, label, onClick, enabled) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.disabled = !enabled;
+  if (!enabled) b.style.opacity = '0.4';
+  b.addEventListener('click', onClick);
+  parent.appendChild(b);
+}
+function step(delta) {
+  const max = MODEL.turns.length - 1;
+  selectedTurn = Math.max(0, Math.min(max, (selectedTurn ?? 0) + delta));
+  renderDetail();
+  updateSelection();
+  scrollToTurn(selectedTurn);
 }
 
 function scrollToTurn(i) {

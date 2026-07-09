@@ -3,6 +3,8 @@
 **Flight data recorder for local coding agents.**
 When Claude Code loops, drifts off-goal, or quietly burns two million tokens, `agentfdr` shows you *why* — turn by turn, after the fact.
 
+*日本語版 README は [README.ja.md](README.ja.md) へ。UI・CLI とも日本語対応です。*
+
 ```
 npx agentfdr
 ```
@@ -31,6 +33,10 @@ agentfdr open 35cb18        # open a session by id prefix (or path to a .jsonl)
 agentfdr blame 35cb18       # markdown autopsy — paste it into an issue
 agentfdr stats              # token totals per project
 ```
+
+Options: `--port <n>` (auto-falls-back if taken), `--no-browser`, `--json`, `--lang en|ja` (auto-detected from `LANG`).
+
+In the viewer: click a turn to dissect it, **←/→** to step between turns, **Esc** to close, hover anything for the full readout. Language (日本語/English) and theme toggles are in the header; both persist.
 
 ## What you get
 
