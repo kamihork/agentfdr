@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentFDR — flight recorder</title>
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface-1: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    /* tool lane (categorical, fixed order — never cycled) */
+    --tool-shell: #2a78d6;
+    --tool-write: #1baf7a;
+    --tool-read: #eda100;
+    --tool-search: #008300;
+    --tool-agent: #4a3aa7;
+    --tool-web: #e87ba4;
+    --tool-mcp: #eb6834;
+    --tool-other: #898781;
+    /* context ramp (one hue, ordinal light->dark) */
+    --ctx-1: #86b6ef;
+    --ctx-2: #2a78d6;
+    --ctx-3: #104281;
+    /* output tokens (second sequential context -> aqua) */
+    --out: #1baf7a;
+    /* status — reserved, never reused for series */
+    --status-critical: #d03b3b;
+    --status-warning: #fab219;
+    --wash: rgba(11, 11, 11, 0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0d0d0d;
+      --surface-1: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --tool-shell: #3987e5;
+      --tool-write: #199e70;
+      --tool-read: #c98500;
+      --tool-search: #008300;
+      --tool-agent: #9085e9;
+      --tool-web: #d55181;
+      --tool-mcp: #d95926;
+      --tool-other: #898781;
+      --ctx-1: #86b6ef;
+      --ctx-2: #3987e5;
+      --ctx-3: #184f95;
+      --out: #199e70;
+      --wash: rgba(255, 255, 255, 0.07);
+    }
+  }
+  :root[data-theme="light"] {
+    --page: #f9f9f7; --surface-1: #fcfcfb; --text-primary: #0b0b0b; --text-secondary: #52514e;
+    --text-muted: #898781; --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --tool-shell: #2a78d6; --tool-write: #1baf7a; --tool-read: #eda100; --tool-search: #008300;
+    --tool-agent: #4a3aa7; --tool-web: #e87ba4; --tool-mcp: #eb6834; --tool-other: #898781;
+    --ctx-1: #86b6ef; --ctx-2: #2a78d6; --ctx-3: #104281; --out: #1baf7a;
+    --wash: rgba(11,11,11,0.05);
+  }
+  :root[data-theme="dark"] {
+    --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7;
+    --text-muted: #898781; --grid: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+    --tool-shell: #3987e5; --tool-write: #199e70; --tool-read: #c98500; --tool-search: #008300;
+    --tool-agent: #9085e9; --tool-web: #d55181; --tool-mcp: #d95926; --tool-other: #898781;
+    --ctx-1: #86b6ef; --ctx-2: #3987e5; --ctx-3: #184f95; --out: #199e70;
+    --wash: rgba(255,255,255,0.07);
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  header h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  header h1 span { color: var(--text-muted); font-weight: 400; }
+  select, button {
+    font: inherit; color: var(--text-primary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 7px; padding: 5px 10px; cursor: pointer;
+  }
+  select { max-width: 480px; }
+  button:hover { background: var(--wash); }
+  .spacer { flex: 1; }
+  #meta { color: var(--text-secondary); font-size: 13px; margin-bottom: 16px; }
+  #meta code { color: var(--text-muted); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .tile .label { font-size: 12px; color: var(--text-secondary); }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .tile .sub { font-size: 12px; color: var(--text-muted); }
+  .tile .sub.bad { color: var(--status-critical); }
+
+  #flagstrip { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .flagchip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .flagchip:hover { background: var(--wash); }
+  .flagchip .ico { font-size: 11px; }
+  .flagchip.critical .ico { color: var(--status-critical); }
+  .flagchip.warning .ico { color: var(--status-warning); }
+  .flagchip .range { color: var(--text-muted); }
+
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; }
+  .lanes { overflow-x: auto; }
+  #legend > .legend { margin-top: 8px; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; font-size: 12px; color: var(--text-secondary); }
+  .legend .key { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 3px; }
+
+  #tooltip {
+    position: fixed; z-index: 10; pointer-events: none; display: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.18); padding: 10px 12px; font-size: 12.5px;
+    max-width: 340px;
+  }
+  #tooltip .tt-title { font-weight: 600; margin-bottom: 6px; }
+  #tooltip .row { display: flex; align-items: baseline; gap: 8px; }
+  #tooltip .row .k { width: 14px; height: 3px; border-radius: 2px; flex: none; align-self: center; }
+  #tooltip .row .v { font-weight: 600; }
+  #tooltip .row .l { color: var(--text-secondary); }
+  #tooltip .flagline.critical { color: var(--status-critical); }
+  #tooltip .flagline.warning { color: var(--status-warning); }
+
+  #detail .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  #detail .head .t { font-size: 15px; font-weight: 650; }
+  #detail .head .m { color: var(--text-muted); font-size: 12.5px; }
+  #detail .atext {
+    white-space: pre-wrap; color: var(--text-secondary); font-size: 13px;
+    border-left: 2px solid var(--grid); padding-left: 10px; margin: 10px 0; max-height: 200px; overflow-y: auto;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--grid); }
+  td { padding: 5px 10px 5px 0; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .toolkey { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; }
+  .err { color: var(--status-critical); font-weight: 600; }
+  details summary { cursor: pointer; color: var(--text-muted); }
+  details pre {
+    white-space: pre-wrap; word-break: break-word; font-size: 11.5px; color: var(--text-secondary);
+    background: var(--wash); border-radius: 6px; padding: 8px; margin-top: 6px; max-height: 240px; overflow-y: auto;
+  }
+  #empty { color: var(--text-secondary); padding: 40px; text-align: center; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>AgentFDR <span>/ flight recorder</span></h1>
+    <select id="sessionSelect" aria-label="Session"></select>
+    <div class="spacer"></div>
+    <button id="tableToggle" aria-pressed="false">Table view</button>
+    <button id="themeToggle" title="Toggle theme">◐</button>
+  </header>
+  <div id="meta"></div>
+  <div id="empty" class="hidden">No sessions found under <code>~/.claude/projects</code>.</div>
+
+  <div id="deck" class="hidden">
+    <div class="tiles" id="tiles"></div>
+    <div id="flagstrip"></div>
+
+    <div class="card" id="timelineCard">
+      <h2 id="tlTitle">Timeline</h2>
+      <div class="lanes" id="lanes"></div>
+      <div id="legend"></div>
+    </div>
+
+    <div class="card hidden" id="tableCard">
+      <h2>Turns</h2>
+      <div style="overflow-x:auto"><table id="turnsTable"></table></div>
+    </div>
+
+    <div class="card hidden" id="detail"></div>
+  </div>
+
+  <div id="tooltip" role="status"></div>
+
+<script>
+'use strict';
+
+// ---------- state ----------
+let MODEL = null;
+let selectedTurn = null;
+
+const $ = (id) => document.getElementById(id);
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// Fixed tool-group order — identity follows the tool, never its rank.
+const TOOL_GROUPS = [
+  ['shell',  (n) => /^(Bash|BashOutput|KillShell)$/.test(n)],
+  ['write',  (n) => /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(n)],
+  ['read',   (n) => n === 'Read'],
+  ['search', (n) => /^(Grep|Glob|LS)$/.test(n)],
+  ['agent',  (n) => /^(Task|Agent|Skill|Workflow|SendMessage)$/.test(n)],
+  ['web',    (n) => /^(WebFetch|WebSearch)$/.test(n)],
+  ['mcp',    (n) => n.startsWith('mcp__')],
+];
+function toolGroup(name) {
+  for (const [g, test] of TOOL_GROUPS) if (test(name)) return g;
+  return 'other';
+}
+const groupColor = (g) => css('--tool-' + g);
+const GROUP_LABELS = {
+  shell: 'Shell', write: 'Edit/Write', read: 'Read', search: 'Search',
+  agent: 'Subagent', web: 'Web', mcp: 'MCP', other: 'Other',
+};
+
+const kTok = (n) => n >= 1000 ? (n >= 100000 ? Math.round(n / 1000) + 'k' : (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k') : String(n);
+const fmtMs = (ms) => {
+  if (ms == null) return '?';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  return m < 60 ? m + 'm ' + (s % 60) + 's' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+};
+const hhmm = (ts) => ts ? new Date(ts).toTimeString().slice(0, 8) : '';
+
+// ---------- boot ----------
+init();
+async function init() {
+  $('themeToggle').addEventListener('click', () => {
+    const root = document.documentElement;
+    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const cur = root.dataset.theme || (dark ? 'dark' : 'light');
+    root.dataset.theme = cur === 'dark' ? 'light' : 'dark';
+    if (MODEL) render();
+  });
+  $('tableToggle').addEventListener('click', () => {
+    const card = $('tableCard');
+    card.classList.toggle('hidden');
+    $('tableToggle').setAttribute('aria-pressed', String(!card.classList.contains('hidden')));
+  });
+
+  const res = await fetch('/api/sessions');
+  const { projects } = await res.json();
+  const sel = $('sessionSelect');
+  for (const p of projects) {
+    const og = document.createElement('optgroup');
+    og.label = p.slug.replace(/^-/, '').replace(/-/g, '/');
+    for (const s of p.sessions) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = (s.title || s.id.slice(0, 8)) + ' — ' + new Date(s.mtimeMs).toLocaleString();
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
+  }
+  sel.addEventListener('change', () => load(sel.value));
+
+  if (!projects.length) { $('empty').classList.remove('hidden'); return; }
+  const want = location.hash.slice(1);
+  const first = want && [...sel.options].some((o) => o.value === want) ? want : sel.options[0].value;
+  sel.value = first;
+  load(first);
+}
+
+async function load(id) {
+  location.hash = id;
+  const res = await fetch('/api/session?id=' + encodeURIComponent(id));
+  MODEL = await res.json();
+  selectedTurn = null;
+  render();
+}
+
+// ---------- render ----------
+function render() {
+  $('deck').classList.remove('hidden');
+  renderMeta();
+  renderTiles();
+  renderFlags();
+  renderTimeline();
+  renderTable();
+  renderDetail();
+}
+
+function renderMeta() {
+  const s = MODEL.session, t = MODEL.totals;
+  const el = $('meta');
+  el.textContent = '';
+  const bits = [
+    s.title, s.model, s.cwd && s.cwd + (s.gitBranch ? ' (' + s.gitBranch + ')' : ''),
+    s.startedAt && new Date(s.startedAt).toLocaleString(), t.wallMs != null && 'wall ' + fmtMs(t.wallMs),
+  ].filter(Boolean);
+  el.textContent = bits.join('  ·  ');
+}
+
+function renderTiles() {
+  const t = MODEL.totals;
+  const flags = MODEL.flags;
+  const crit = flags.filter((f) => f.severity === 'critical').length;
+  const peak = Math.max(0, ...MODEL.turns.map((tt) => tt.contextTokens));
+  const tiles = [
+    ['Turns', String(t.turns), MODEL.prompts.length + ' prompts'],
+    ['Tool calls', String(t.toolCalls), t.toolErrors ? t.toolErrors + ' errors' : 'no errors', t.toolErrors > 0],
+    ['Output tokens', kTok(t.tokens.output), 'in ' + kTok(t.tokens.input + t.tokens.cacheCreation) + ' fresh'],
+    ['Context peak', kTok(peak), 'cache-read ' + kTok(t.tokens.cacheRead) + ' total'],
+    ['Anomalies', String(flags.length), crit ? crit + ' critical' : 'none critical', crit > 0],
+  ];
+  const wrap = $('tiles');
+  wrap.textContent = '';
+  for (const [label, value, sub, bad] of tiles) {
+    const d = document.createElement('div');
+    d.className = 'tile';
+    add(d, 'div', 'label', label);
+    add(d, 'div', 'value', value);
+    add(d, 'div', 'sub' + (bad ? ' bad' : ''), sub);
+    wrap.appendChild(d);
+  }
+}
+
+function renderFlags() {
+  const wrap = $('flagstrip');
+  wrap.textContent = '';
+  for (const f of MODEL.flags) {
+    const chip = document.createElement('button');
+    chip.className = 'flagchip ' + f.severity;
+    add(chip, 'span', 'ico', f.severity === 'critical' ? '●' : '▲');
+    add(chip, 'span', '', f.title);
+    add(chip, 'span', 'range', f.turnStart === f.turnEnd ? 't' + f.turnStart : 't' + f.turnStart + '–' + f.turnEnd);
+    chip.addEventListener('click', () => { selectedTurn = f.turnStart; renderDetail(); scrollToTurn(f.turnStart); });
+    wrap.appendChild(chip);
+  }
+}
+
+// The timeline: shared x (turn index), stacked lanes. SVG, no libraries.
+function renderTimeline() {
+  const turns = MODEL.turns;
+  const lanes = $('lanes');
+  lanes.textContent = '';
+  if (!turns.length) return;
+
+  const n = turns.length;
+  const colW = Math.max(7, Math.min(26, Math.floor(1200 / n)));
+  const barW = Math.min(24, colW - 2); // ≤24px thick, 2px surface gap between columns
+  const padL = 46, padR = 12;
+  const width = padL + n * colW + padR;
+
+  const maxTools = Math.min(10, Math.max(1, ...turns.map((t) => t.toolCalls.length)));
+  const toolsH = maxTools * 11 + 4;
+  const ctxH = 110, outH = 54, marksH = 20, axisH = 22, gap = 12, header = 14;
+  const yTools = marksH + header, yCtx = yTools + toolsH + gap + header, yOut = yCtx + ctxH + gap + header, yAxis = yOut + outH + 8;
+  const height = yAxis + axisH;
+
+  const svg = mk('svg', { width, height, viewBox: `0 0 ${width} ${height}`, role: 'img' });
+  svg.style.display = 'block';
+  const x = (i) => padL + i * colW;
+
+  // lane labels sit in their own header row, clear of the tick gutter
+  laneLabel(svg, 'tools', padL, yTools - 4);
+  laneLabel(svg, 'context tokens', padL, yCtx - 4);
+  laneLabel(svg, 'output tokens', padL, yOut - 4);
+
+  // --- markers lane: compaction + prompts ---
+  for (const m of MODEL.metaEvents) {
+    if (m.kind !== 'compaction') continue;
+    const i = Math.max(0, Math.min(n - 1, (m.afterTurn ?? 0) + 1));
+    svg.appendChild(mk('line', { x1: x(i) - 1, y1: marksH - 6, x2: x(i) - 1, y2: yAxis, stroke: css('--baseline'), 'stroke-width': 1, 'stroke-dasharray': '' }));
+    const t = mk('text', { x: x(i) + 2, y: 12, fill: css('--text-muted'), 'font-size': 10 });
+    t.textContent = '⟲ compact';
+    svg.appendChild(t);
+  }
+  for (const p of MODEL.prompts) {
+    const i = Math.max(0, Math.min(n - 1, (p.afterTurn ?? -1) + 1));
+    const t = mk('text', { x: x(i) + barW / 2, y: 12, fill: css('--text-secondary'), 'font-size': 10, 'text-anchor': 'middle' });
+    t.textContent = '▼';
+    svg.appendChild(t);
+  }
+
+  // --- scales for token lanes ---
+  const maxCtx = Math.max(1, ...turns.map((t) => t.contextTokens));
+  const maxOut = Math.max(1, ...turns.map((t) => t.usage.output));
+
+  // gridlines + clean ticks (recessive, hairline)
+  for (const [laneY, laneH, maxV] of [[yCtx, ctxH, maxCtx], [yOut, outH, maxOut]]) {
+    for (const v of niceTicks(maxV)) {
+      const gy = laneY + laneH - (v / maxV) * (laneH - 4);
+      svg.appendChild(mk('line', { x1: padL - 4, y1: gy, x2: width - padR, y2: gy, stroke: v === 0 ? css('--baseline') : css('--grid'), 'stroke-width': 1 }));
+      const lbl = mk('text', { x: padL - 8, y: gy + 3.5, 'text-anchor': 'end', fill: css('--text-muted'), 'font-size': 10, style: 'font-variant-numeric: tabular-nums' });
+      lbl.textContent = kTok(v);
+      svg.appendChild(lbl);
+    }
+  }
+
+  // --- per-turn marks ---
+  const ctxColors = [css('--ctx-1'), css('--ctx-2'), css('--ctx-3')];
+  for (let i = 0; i < n; i++) {
+    const t = turns[i];
+    const gx = x(i);
+    const dim = t.isSidechain ? 0.55 : 1;
+
+    // tool blocks (top-down stack, 2px surface gaps)
+    t.toolCalls.slice(0, maxTools).forEach((c, j) => {
+      const r = mk('rect', {
+        x: gx, y: yTools + 4 + j * 11, width: barW, height: 9, rx: 2,
+        fill: groupColor(toolGroup(c.name)), opacity: dim,
+      });
+      if (c.result && c.result.isError) {
+        r.setAttribute('stroke', css('--status-critical'));
+        r.setAttribute('stroke-width', '2');
+      }
+      svg.appendChild(r);
+    });
+    if (t.toolCalls.length > maxTools) {
+      const more = mk('text', { x: gx + barW / 2, y: yTools + 4 + maxTools * 11 + 8, 'text-anchor': 'middle', fill: css('--text-muted'), 'font-size': 9 });
+      more.textContent = '+' + (t.toolCalls.length - maxTools);
+      svg.appendChild(more);
+    }
+
+    // context stacked bar: cacheRead -> cacheCreation -> fresh input (light -> dark)
+    const segs = [t.usage.cacheRead, t.usage.cacheCreation, t.usage.input];
+    let yCursor = yCtx + ctxH;
+    segs.forEach((v, si) => {
+      if (v <= 0) return;
+      const h = Math.max(1, (v / maxCtx) * (ctxH - 4));
+      yCursor -= h;
+      svg.appendChild(mk('rect', { x: gx, y: yCursor, width: barW, height: Math.max(0, h - 2), rx: 2, fill: ctxColors[si], opacity: dim }));
+      yCursor -= 0; // 2px gap comes from h-2 above
+    });
+
+    // output bar (single series, rounded data-end, square baseline)
+    if (t.usage.output > 0) {
+      const h = Math.max(1.5, (t.usage.output / maxOut) * (outH - 4));
+      svg.appendChild(mk('rect', { x: gx, y: yOut + outH - h, width: barW, height: h, rx: 2, fill: css('--out'), opacity: dim }));
+    }
+
+    // flag underline on axis — only tightly-scoped flags; ambient ranges
+    // (file-churn spans first-to-last edit) would paint the whole axis
+    const tflags = flagsAt(i).filter((f) => f.turnEnd - f.turnStart <= 40 && f.type !== 'file-churn');
+    if (tflags.length) {
+      const worst = tflags.some((f) => f.severity === 'critical') ? '--status-critical' : '--status-warning';
+      svg.appendChild(mk('rect', { x: gx, y: yAxis - 4, width: barW, height: 3, rx: 1.5, fill: css(worst) }));
+    }
+
+    // x tick labels
+    if (i % Math.ceil(n / 14) === 0) {
+      const lbl = mk('text', { x: gx + barW / 2, y: yAxis + 14, 'text-anchor': 'middle', fill: css('--text-muted'), 'font-size': 10, style: 'font-variant-numeric: tabular-nums' });
+      lbl.textContent = String(i);
+      svg.appendChild(lbl);
+    }
+
+    // hover/click hit target — bigger than the marks, full column
+    const hit = mk('rect', { x: gx - 1, y: 0, width: colW, height: yAxis, fill: 'transparent' });
+    hit.style.cursor = 'pointer';
+    hit.dataset.turn = String(i);
+    hit.addEventListener('pointerenter', (e) => { hit.setAttribute('fill', css('--wash')); showTooltip(e, i); });
+    hit.addEventListener('pointermove', (e) => showTooltip(e, i));
+    hit.addEventListener('pointerleave', () => { hit.setAttribute('fill', 'transparent'); hideTooltip(); });
+    hit.addEventListener('click', () => { selectedTurn = i; renderDetail(); });
+    svg.appendChild(hit);
+  }
+
+  lanes.appendChild(svg);
+  $('tlTitle').textContent = `Timeline — ${n} turns`;
+  renderLegend();
+}
+
+function laneLabel(svg, text, x, y) {
+  const t = mk('text', { x, y, fill: css('--text-muted'), 'font-size': 10, 'letter-spacing': '0.06em' });
+  t.textContent = text.toUpperCase();
+  svg.appendChild(t);
+}
+
+/** 0..max as 2–3 clean ticks (1/2/2.5/5 × 10^k). */
+function niceTicks(max) {
+  if (max <= 0) return [0];
+  const raw = max / 2;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * pow).find((s) => s >= raw) ?? raw;
+  const out = [0];
+  for (let v = step; v <= max; v += step) out.push(Math.round(v));
+  return out;
+}
+
+function renderLegend() {
+  const legend = $('legend');
+  legend.textContent = '';
+  // Two rows: tool identities and token segments never share a line.
+  const toolsRow = document.createElement('div');
+  toolsRow.className = 'legend';
+  const present = new Set();
+  for (const t of MODEL.turns) for (const c of t.toolCalls) present.add(toolGroup(c.name));
+  const order = [...TOOL_GROUPS.map(([g]) => g), 'other'].filter((g) => present.has(g));
+  groupTitle(toolsRow, 'tools');
+  for (const g of order) key(toolsRow, groupColor(g), GROUP_LABELS[g]);
+  legend.appendChild(toolsRow);
+
+  const tokRow = document.createElement('div');
+  tokRow.className = 'legend';
+  groupTitle(tokRow, 'tokens');
+  key(tokRow, css('--ctx-1'), 'cache read');
+  key(tokRow, css('--ctx-2'), 'cache write');
+  key(tokRow, css('--ctx-3'), 'fresh input');
+  key(tokRow, css('--out'), 'output');
+  legend.appendChild(tokRow);
+}
+function groupTitle(row, text) {
+  const s = document.createElement('span');
+  s.textContent = text.toUpperCase();
+  s.style.cssText = 'color:var(--text-muted);font-size:10px;letter-spacing:0.06em;min-width:44px';
+  row.appendChild(s);
+}
+function key(parent, color, label) {
+  const k = document.createElement('span');
+  k.className = 'key';
+  const sw = document.createElement('span');
+  sw.className = 'swatch';
+  sw.style.background = color;
+  k.appendChild(sw);
+  k.appendChild(document.createTextNode(label));
+  parent.appendChild(k);
+}
+
+function flagsAt(i) {
+  return MODEL.flags.filter((f) => i >= f.turnStart && i <= f.turnEnd);
+}
+
+// ---------- tooltip (values lead, labels follow; line keys) ----------
+function showTooltip(e, i) {
+  const t = MODEL.turns[i];
+  const tt = $('tooltip');
+  tt.textContent = '';
+  add(tt, 'div', 'tt-title', 'Turn ' + i + (t.isSidechain ? ' · subagent' : '') + (t.timestamp ? ' · ' + hhmm(t.timestamp) : ''));
+
+  row(tt, css('--ctx-2'), kTok(t.contextTokens), 'context (' + kTok(t.usage.cacheRead) + ' cached)');
+  row(tt, css('--out'), kTok(t.usage.output), 'output tokens');
+  for (const c of t.toolCalls.slice(0, 6)) {
+    row(tt, groupColor(toolGroup(c.name)), c.name, (c.summary || '') + (c.result && c.result.isError ? '  ⚠ error' : ''));
+  }
+  if (t.toolCalls.length > 6) add(tt, 'div', 'l', '… +' + (t.toolCalls.length - 6) + ' more calls');
+  if (t.stopReason) add(tt, 'div', 'l', 'stop: ' + t.stopReason);
+  for (const f of flagsAt(i)) add(tt, 'div', 'flagline ' + f.severity, (f.severity === 'critical' ? '● ' : '▲ ') + f.title);
+
+  tt.style.display = 'block';
+  const pad = 14;
+  const w = tt.offsetWidth, h = tt.offsetHeight;
+  let px = e.clientX + pad, py = e.clientY + pad;
+  if (px + w > innerWidth - 8) px = e.clientX - w - pad;
+  if (py + h > innerHeight - 8) py = e.clientY - h - pad;
+  tt.style.left = px + 'px';
+  tt.style.top = py + 'px';
+}
+function hideTooltip() { $('tooltip').style.display = 'none'; }
+function row(tt, color, value, label) {
+  const r = document.createElement('div');
+  r.className = 'row';
+  const k = document.createElement('span');
+  k.className = 'k';
+  k.style.background = color;
+  r.appendChild(k);
+  const v = document.createElement('span');
+  v.className = 'v';
+  v.textContent = value;
+  r.appendChild(v);
+  const l = document.createElement('span');
+  l.className = 'l';
+  l.textContent = label;
+  r.appendChild(l);
+  tt.appendChild(r);
+}
+
+// ---------- table view (the no-hover, no-color path to every value) ----------
+function renderTable() {
+  const table = $('turnsTable');
+  table.textContent = '';
+  const thead = document.createElement('tr');
+  for (const [h, num] of [['turn', 1], ['time', 0], ['tools', 0], ['context', 1], ['output', 1], ['errors', 1], ['flags', 0]]) {
+    const th = document.createElement('th');
+    if (num) th.className = 'num';
+    th.textContent = h;
+    thead.appendChild(th);
+  }
+  table.appendChild(thead);
+  for (const t of MODEL.turns) {
+    const tr = document.createElement('tr');
+    const cells = [
+      [String(t.index) + (t.isSidechain ? ' ⧉' : ''), 1],
+      [hhmm(t.timestamp), 0],
+      [t.toolCalls.map((c) => c.name).join(', '), 0],
+      [kTok(t.contextTokens), 1],
+      [kTok(t.usage.output), 1],
+      [String(t.toolCalls.filter((c) => c.result && c.result.isError).length || ''), 1],
+      [flagsAt(t.index).map((f) => f.title).join('; '), 0],
+    ];
+    for (const [v, num] of cells) {
+      const td = document.createElement('td');
+      if (num) td.className = 'num';
+      td.textContent = v;
+      tr.appendChild(td);
+    }
+    tr.style.cursor = 'pointer';
+    tr.addEventListener('click', () => { selectedTurn = t.index; renderDetail(); });
+    table.appendChild(tr);
+  }
+}
+
+// ---------- turn detail ----------
+function renderDetail() {
+  const card = $('detail');
+  if (selectedTurn == null || !MODEL.turns[selectedTurn]) { card.classList.add('hidden'); return; }
+  const t = MODEL.turns[selectedTurn];
+  card.classList.remove('hidden');
+  card.textContent = '';
+
+  const head = add(card, 'div', 'head');
+  add(head, 'span', 't', 'Turn ' + t.index);
+  add(head, 'span', 'm', [t.timestamp && new Date(t.timestamp).toLocaleTimeString(), t.model, t.stopReason && 'stop: ' + t.stopReason, t.isSidechain && 'subagent sidechain'].filter(Boolean).join(' · '));
+
+  add(card, 'div', 'm', '');
+  const usage = add(card, 'div', '');
+  usage.style.cssText = 'display:flex;gap:18px;font-size:12.5px;color:var(--text-secondary);margin-bottom:4px';
+  for (const [l, v] of [['fresh input', t.usage.input], ['cache read', t.usage.cacheRead], ['cache write', t.usage.cacheCreation], ['output', t.usage.output], ['thinking chars', t.thinkingChars]]) {
+    const s = document.createElement('span');
+    const b = document.createElement('strong');
+    b.textContent = kTok(v);
+    b.style.color = 'var(--text-primary)';
+    s.appendChild(b);
+    s.appendChild(document.createTextNode(' ' + l));
+    usage.appendChild(s);
+  }
+
+  if (t.text) add(card, 'div', 'atext', t.text.length > 4000 ? t.text.slice(0, 4000) + '…' : t.text);
+
+  if (t.toolCalls.length) {
+    const table = document.createElement('table');
+    const thr = document.createElement('tr');
+    for (const h of ['tool', 'input', 'duration', 'result']) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      thr.appendChild(th);
+    }
+    table.appendChild(thr);
+    for (const c of t.toolCalls) {
+      const tr = document.createElement('tr');
+      const tdName = document.createElement('td');
+      const swatch = document.createElement('span');
+      swatch.className = 'toolkey';
+      swatch.style.background = groupColor(toolGroup(c.name));
+      tdName.appendChild(swatch);
+      tdName.appendChild(document.createTextNode(c.name));
+      tr.appendChild(tdName);
+      const tdIn = document.createElement('td');
+      tdIn.textContent = c.summary || '';
+      tr.appendChild(tdIn);
+      const tdDur = document.createElement('td');
+      tdDur.textContent = c.result && c.result.durationMs != null ? fmtMs(c.result.durationMs) : '';
+      tr.appendChild(tdDur);
+      const tdRes = document.createElement('td');
+      if (c.result) {
+        if (c.result.isError) {
+          const e = document.createElement('span');
+          e.className = 'err';
+          e.textContent = 'ERROR ';
+          tdRes.appendChild(e);
+        }
+        tdRes.appendChild(document.createTextNode(kTok(c.result.chars) + ' chars'));
+        if (c.result.snippet) {
+          const det = document.createElement('details');
+          const sum = document.createElement('summary');
+          sum.textContent = 'snippet';
+          det.appendChild(sum);
+          const pre = document.createElement('pre');
+          pre.textContent = c.result.snippet;
+          det.appendChild(pre);
+          tdRes.appendChild(det);
+        }
+      } else {
+        tdRes.textContent = '(no result recorded)';
+      }
+      tr.appendChild(tdRes);
+      table.appendChild(tr);
+    }
+    card.appendChild(table);
+  }
+}
+
+function scrollToTurn(i) {
+  const hit = document.querySelector(`[data-turn="${i}"]`);
+  if (hit) hit.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+}
+
+// ---------- tiny DOM/SVG helpers ----------
+function add(parent, tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+function mk(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+</script>
+</body>
+</html>

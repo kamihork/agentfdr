@@ -1,0 +1,35 @@
+{
+  "name": "agentfdr",
+  "version": "0.1.0",
+  "description": "Flight data recorder for local coding agents — dissect why Claude Code (and friends) looped, drifted, or burned tokens. Zero instrumentation, local-first.",
+  "type": "module",
+  "bin": {
+    "agentfdr": "bin/agentfdr.js"
+  },
+  "main": "src/parser.js",
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "keywords": [
+    "claude-code",
+    "agent",
+    "observability",
+    "flight-recorder",
+    "llm",
+    "debugging",
+    "timeline",
+    "tokens",
+    "coding-agent"
+  ],
+  "author": "",
+  "license": "Apache-2.0"
+}
