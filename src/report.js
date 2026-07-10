@@ -1,6 +1,7 @@
 // `agentfdr blame` — a paste-into-an-issue markdown autopsy of one session.
 
 import { t, formatFlag } from './i18n.js';
+import { estimateSessionCost, fmtUsd } from './cost.js';
 
 export function blameReport(model, flags, lang = 'en') {
   const { session, totals, turns } = model;
@@ -14,12 +15,20 @@ export function blameReport(model, flags, lang = 'en') {
   lines.push(`|---|---|`);
   if (session.id) lines.push(`| ${s.session} | \`${session.id}\` |`);
   if (session.cwd) lines.push(`| ${s.project} | \`${session.cwd}\`${session.gitBranch ? ` (${session.gitBranch})` : ''} |`);
-  if (session.model) lines.push(`| ${s.model} | ${session.model} |`);
+  const models = session.models?.length
+    ? session.models.map((m) => (session.models.length > 1 ? `${m.model} ×${m.turns}` : m.model)).join(', ')
+    : session.model;
+  if (models) lines.push(`| ${s.model} | ${models} |`);
+  if (session.effort) lines.push(`| Effort | ${session.effort} |`);
   if (session.startedAt) lines.push(`| ${s.started} | ${session.startedAt} |`);
   if (totals.wallMs != null) lines.push(`| ${s.wallTime} | ${fmtMs(totals.wallMs)} |`);
   lines.push(`| ${s.turns} | ${totals.turns} |`);
   lines.push(`| ${s.toolCalls} | ${totals.toolCalls}${totals.toolErrors ? ` (${totals.toolErrors} ${s.errors})` : ''} |`);
+  if (totals.webSearch || totals.webFetch) lines.push(`| Web | search ${totals.webSearch} / fetch ${totals.webFetch} |`);
+  if (totals.compactions) lines.push(`| Compaction | ${totals.compactions} |`);
   lines.push(`| ${s.tokens} | ${s.tokensLine(totals.tokens, kTok)} |`);
+  const cost = estimateSessionCost(model);
+  if (cost.usd != null) lines.push(`| ${s.estCost} | ~${fmtUsd(cost.usd)} ${s.estCostNote} |`);
   lines.push('');
 
   if (!flags.length) {

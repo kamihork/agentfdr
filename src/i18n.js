@@ -19,6 +19,8 @@ const STRINGS = {
     errors: 'errors',
     tokens: 'Tokens',
     tokensLine: (t, k) => `in ${k(t.input)} / out ${k(t.output)} / cache-read ${k(t.cacheRead)} / cache-write ${k(t.cacheCreation)}`,
+    estCost: 'Est. cost',
+    estCostNote: '(from list prices; estimate only)',
     anomalies: 'Anomalies',
     noAnomalies: '**No anomalies detected.** (That means the heuristics found nothing — not that nothing went wrong.)',
     turnRange: (a, b) => (a === b ? `turn ${a}` : `turns ${a}–${b}`),
@@ -26,6 +28,17 @@ const STRINGS = {
     openWith: 'Open one with: agentfdr open <id-prefix>',
     noSessions: (root) => `No sessions found under ${root}`,
     untitled: '(untitled)',
+    plan: 'Plan',
+    window5h: 'Current 5h window',
+    noActiveWindow: 'no active window',
+    today: 'Today',
+    week7d: 'Last 7 days',
+    windowsUsed: (n) => `${n} windows started`,
+    perDay: 'Per day (billed tokens = fresh input + cache write + output):',
+    perModel: 'Per model:',
+    turnsN: (n) => `${n} turns`,
+    usageNote:
+      'Plan limits are not published and not stored locally. Calibrate --budget-5h / --budget-week against Claude Code\'s /usage screen.',
   },
   ja: {
     flightReport: 'フライトレポート',
@@ -39,6 +52,8 @@ const STRINGS = {
     errors: 'エラー',
     tokens: 'トークン',
     tokensLine: (t, k) => `入力 ${k(t.input)} / 出力 ${k(t.output)} / キャッシュ読取 ${k(t.cacheRead)} / キャッシュ書込 ${k(t.cacheCreation)}`,
+    estCost: '推定コスト',
+    estCostNote: '(定価ベースの概算)',
     anomalies: '検知された異常',
     noAnomalies: '**異常は検知されませんでした。**(ヒューリスティックが何も見つけなかっただけで、問題がなかったという意味ではありません)',
     turnRange: (a, b) => (a === b ? `ターン ${a}` : `ターン ${a}–${b}`),
@@ -46,6 +61,17 @@ const STRINGS = {
     openWith: '開くには: agentfdr open <IDの先頭数文字>',
     noSessions: (root) => `${root} にセッションが見つかりません`,
     untitled: '(無題)',
+    plan: 'プラン',
+    window5h: '現在の5時間ウィンドウ',
+    noActiveWindow: 'アクティブなウィンドウなし',
+    today: '今日',
+    week7d: '直近7日',
+    windowsUsed: (n) => `ウィンドウ開始 ${n}回`,
+    perDay: '日別(課金トークン = 新規入力 + キャッシュ書込 + 出力):',
+    perModel: 'モデル別:',
+    turnsN: (n) => `${n}ターン`,
+    usageNote:
+      'プランの正確な上限は非公開でローカルにも記録されません。Claude Code の /usage 画面と見比べて --budget-5h / --budget-week を調整してください。',
   },
 };
 
@@ -63,6 +89,7 @@ const FLAG_FMT = {
     'token-spike': (p) => [`Context jumped +${p.deltaK}k tokens`, `${p.fromK}k → ${p.toK}k in one turn`],
     'cache-thrash': (p) => [`${p.count} turns with zero cache hits`, 'Full input re-read each turn — check for context churn'],
     'file-churn': (p) => [`Same file edited ${p.count}×`, p.path],
+    'refusal': () => ['Model refusal', 'stop_reason: refusal — the request was declined'],
   },
   ja: {
     'loop': (p) => [`ツールループ ×${p.repeats}`, `同一パターンを${p.repeats}回反復(${p.span}回の呼び出し): ${p.gram}`],
@@ -71,6 +98,7 @@ const FLAG_FMT = {
     'token-spike': (p) => [`コンテキストが+${p.deltaK}kトークン急増`, `1ターンで ${p.fromK}k → ${p.toK}k`],
     'cache-thrash': (p) => [`${p.count}ターン連続でキャッシュヒットなし`, `毎ターン全入力を再読込 — コンテキストの入れ替わりを確認`],
     'file-churn': (p) => [`同一ファイルを${p.count}回編集`, p.path],
+    'refusal': () => ['モデルによる拒否', 'stop_reason: refusal — リクエストが拒否されました'],
   },
 };
 

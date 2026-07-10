@@ -196,6 +196,60 @@ test('blame report renders in Japanese with structured flag params', async () =>
   assert.match(en, /Tool loop ×4/);
 });
 
+test('collects models used, effort changes, and fast-mode turns', () => {
+  const esc = String.fromCharCode(27);
+  const model = parseSessionText(jsonl([
+    assistantLine(0, 'msg_A', [{ type: 'text', text: 'hi' }]),
+    // model switch mid-session
+    { ...assistantLine(1, 'msg_B', [{ type: 'text', text: 'yo' }]), message: {
+      ...assistantLine(1, 'msg_B', []).message,
+      model: 'claude-haiku-4-5',
+      usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, speed: 'fast' },
+    } },
+    // /effort stdout with ANSI-style markup
+    { type: 'user', uuid: 'c1', timestamp: ts(2), sessionId: 'sess-1',
+      message: { role: 'user', content: `<command-name>/effort</command-name>` } },
+    { type: 'user', uuid: 'c2', timestamp: ts(3), sessionId: 'sess-1',
+      message: { role: 'user', content: `<local-command-stdout>Set effort level to xhigh (saved as your default)</local-command-stdout>` } },
+    { type: 'user', uuid: 'c3', timestamp: ts(4), sessionId: 'sess-1',
+      message: { role: 'user', content: `<local-command-stdout>Set model to ${esc}[1mFable 5${esc}[22m and saved as your default for new sessions</local-command-stdout>` } },
+  ]));
+
+  assert.deepEqual(model.session.models, [
+    { model: 'claude-test-1', turns: 1 },
+    { model: 'claude-haiku-4-5', turns: 1 },
+  ]);
+  assert.equal(model.session.effort, 'xhigh');
+  assert.equal(model.turns[1].speed, 'fast');
+  assert.equal(model.turns[0].speed, null);
+  const mc = model.metaEvents.find((m) => m.kind === 'model-change');
+  assert.equal(mc.info, 'Fable 5');
+});
+
+test('messages typed mid-turn (queue-operation) become prompts', () => {
+  const model = parseSessionText(jsonl([
+    { type: 'user', uuid: 'p1', timestamp: ts(0), sessionId: 'sess-1', message: { role: 'user', content: 'fix the bug' } },
+    assistantLine(1, 'msg_A', [{ type: 'text', text: 'working on it' }]),
+    { type: 'queue-operation', operation: 'enqueue', content: 'also update the docs', timestamp: ts(2), sessionId: 'sess-1' },
+    { type: 'queue-operation', operation: 'remove', content: 'also update the docs', timestamp: ts(3), sessionId: 'sess-1' },
+    assistantLine(4, 'msg_B', [{ type: 'text', text: 'done' }]),
+  ]));
+  assert.equal(model.prompts.length, 2);
+  assert.equal(model.prompts[1].text, 'also update the docs');
+  assert.equal(model.prompts[1].queued, true);
+});
+
+test('queued prompt later delivered as a user line is not duplicated', () => {
+  const model = parseSessionText(jsonl([
+    { type: 'queue-operation', operation: 'enqueue', content: 'do X', timestamp: ts(0), sessionId: 'sess-1' },
+    assistantLine(1, 'msg_A', [{ type: 'text', text: 'hi' }]),
+    { type: 'user', uuid: 'p2', timestamp: ts(2), sessionId: 'sess-1', message: { role: 'user', content: 'do X' } },
+  ]));
+  assert.equal(model.prompts.length, 1);
+  assert.equal(model.prompts[0].queued, false);
+  assert.equal(model.prompts[0].afterTurn, 0); // jump target updated to delivery point
+});
+
 test('resolveLang picks ja from env-style values', async () => {
   const { resolveLang } = await import('../src/i18n.js');
   assert.equal(resolveLang('ja'), 'ja');

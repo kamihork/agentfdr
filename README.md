@@ -30,13 +30,18 @@ Existing LLM observability tools (LangSmith, Langfuse, AgentOps) assume **you in
 agentfdr                    # open the newest session's timeline in your browser
 agentfdr list               # all recorded sessions across all projects
 agentfdr open 35cb18        # open a session by id prefix (or path to a .jsonl)
+agentfdr watch              # same, but live: the timeline follows the running session
 agentfdr blame 35cb18       # markdown autopsy — paste it into an issue
-agentfdr stats              # token totals per project
+agentfdr stats              # token totals + estimated cost per project
+agentfdr usage              # plan usage: 5h window / daily / weekly burn
+agentfdr assert --no-loops --max-tokens 2M   # CI gate: exit 1 on violation
 ```
 
 Options: `--port <n>` (auto-falls-back if taken), `--no-browser`, `--json`, `--lang en|ja` (auto-detected from `LANG`).
 
-In the viewer: click a turn to dissect it, **←/→** to step between turns, **Esc** to close, hover anything for the full readout. Language (日本語/English) and theme toggles are in the header; both persist.
+`assert` checks (any combination; exit code 1 if one fails): `--no-loops`, `--no-critical`, `--max-errors <n>`, `--max-turns <n>`, `--max-tokens <n>` (fresh input + cache write + output; accepts `500k` / `2M`), `--max-cost <usd>`.
+
+In the viewer: the **dissection panel** lives on the right (always visible on wide screens; slides in on narrow ones) — click a turn and it fills in, and the timeline stays visible so you can step through turns (**←/→**, **Esc** deselects) without losing your place. Drag the panel's left edge to resize it; the width persists. Tabs switch the main view: **Timeline / Turns / Prompts / Usage**; clicking a prompt or an anomaly chip jumps back to the timeline at that turn. Click a tool color in the legend to filter the tools lane. **Copy report** puts the blame markdown on your clipboard; **● LIVE** re-fetches while the session is still running (on automatically via `agentfdr watch`). Language (日本語/English) and theme toggles are in the header; everything persists.
 
 ## What you get
 
@@ -45,6 +50,12 @@ In the viewer: click a turn to dissect it, **←/→** to step between turns, **
 - *Context lane*: stacked context-window composition (cache read / cache write / fresh input) — watch it grow, watch compaction reset it
 - *Output lane*: output tokens per turn
 - Markers for user prompts and compaction events; hover any turn for the full readout, click for the dissection: usage breakdown, assistant text, every tool call with duration, result size, and result snippet
+
+**Session readout** — the header line lists every model that produced a turn (with per-model turn counts when the session switched models), the number of fast-mode turns, and the effort level. A caveat on effort: it is not a structured field in the transcript, so it's recovered from `/effort` command output and only appears when the level was set during the session.
+
+**Cost estimate** — each session (and `stats`/`blame`) shows an estimated USD cost computed from list prices per model, with cache reads at ≈0.1× and cache writes at ≈1.25× the input price. It's an estimate: discounts, batch tiers, and price changes aren't visible in the transcript. Unknown models are excluded and flagged.
+
+**Plan usage** — `agentfdr usage` (and the **Usage** panel in the viewer) aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour rolling window, per-day history, and the rolling week, plus a per-model breakdown. Your plan tier (e.g. `claude_max · default_claude_max_5x`) is read from Claude Code's local config. Anthropic doesn't publish exact token limits, so you set your own budgets (`--budget-5h` / `--budget-week`, env `AGENTFDR_BUDGET_5H` / `AGENTFDR_BUDGET_WEEK`, or inputs in the viewer) and calibrate them against Claude Code's `/usage` screen — agentfdr then shows % consumed with warning colors.
 
 **Anomaly flags** — heuristics that answer "where do I look first?":
 
@@ -56,6 +67,7 @@ In the viewer: click a turn to dissect it, **←/→** to step between turns, **
 | `token-spike` | Context jumped >60% (+50k) in one turn |
 | `cache-thrash` | Consecutive turns paying full price, zero cache hits |
 | `file-churn` | The same file edited 6+ times |
+| `refusal` | A turn ended with `stop_reason: refusal` (safety decline) |
 
 **Blame report** — `agentfdr blame` renders the same analysis as markdown, ready for an issue or a Slack thread.
 
@@ -74,11 +86,12 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 
 ## Roadmap
 
+- [x] Watch mode (`agentfdr watch`) with live timeline
+- [x] CI gate — `agentfdr assert --no-loops --max-tokens 2M`
+- [x] Cost estimation from per-model list prices
 - [ ] Session diff — compare the failed attempt with the successful retry
 - [ ] Adapters for other agents (Codex CLI, Gemini CLI, OpenHands, Aider) behind a common event schema
 - [ ] Subagent/sidechain tree rendering
-- [ ] Watch mode (`agentfdr watch`) with live timeline
-- [ ] CI gate — `agentfdr assert --no-loops --max-tokens 2M`
 - [ ] Pluggable detector rules (YAML)
 
 The longer-term plan (in Japanese): [docs/事業案.md](docs/事業案.md).

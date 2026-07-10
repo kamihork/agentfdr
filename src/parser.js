@@ -8,7 +8,9 @@
 //
 // Model shape (all fields may be null when absent from the source):
 // {
-//   session: { id, file, title, cwd, gitBranch, version, model, startedAt, endedAt },
+//   session: { id, file, title, cwd, gitBranch, version, model, models, effort, startedAt, endedAt },
+//     models: [{ model, turns }] — every model that produced a turn, with counts
+//     effort: last effort level observed (only recorded when /effort ran mid-session)
 //   turns: [ Turn ],          // one per assistant API message (grouped by message.id)
 //   prompts: [ Prompt ],      // visible user prompts
 //   metaEvents: [ Meta ],     // mode changes, compaction, hooks, unknown lines
@@ -34,6 +36,8 @@ export function parseSessionText(text, file = '<memory>') {
     gitBranch: null,
     version: null,
     model: null,
+    models: [],
+    effort: null,
     startedAt: null,
     endedAt: null,
   };
@@ -91,6 +95,19 @@ export function parseSessionText(text, file = '<memory>') {
         break;
       case 'queue-operation':
         metaEvents.push(meta('queue', entry.timestamp, entry.operation));
+        // Messages typed while the agent is running exist ONLY here — they are
+        // enqueued and later delivered mid-turn without a visible user line.
+        // Harness-generated queue items (task notifications etc.) are not prompts.
+        if (entry.operation === 'enqueue' && typeof entry.content === 'string' && entry.content.trim() &&
+            !/^<(task-notification|system-reminder|local-command|command-name|command-message)/.test(entry.content.trim())) {
+          prompts.push({
+            promptId: null,
+            timestamp: entry.timestamp ?? null,
+            text: truncate(entry.content, 2000),
+            afterTurn: turns.length - 1,
+            queued: true,
+          });
+        }
         break;
       case 'attachment':
       case 'file-history-snapshot':
@@ -106,6 +123,20 @@ export function parseSessionText(text, file = '<memory>') {
     t.index = i;
     t.contextTokens = t.usage.input + t.usage.cacheRead + t.usage.cacheCreation;
   });
+
+  // Which models actually produced turns (sessions switch models: /model,
+  // sidechains, background tasks). Order by first appearance.
+  const modelCounts = new Map();
+  for (const t of turns) {
+    if (t.model) modelCounts.set(t.model, (modelCounts.get(t.model) ?? 0) + 1);
+  }
+  session.models = [...modelCounts].map(([model, n]) => ({ model, turns: n }));
+
+  // Effort is not a structured transcript field; the only trace is the
+  // /effort command's stdout. Last one wins.
+  for (const m of metaEvents) {
+    if (m.kind === 'effort') session.effort = m.info;
+  }
 
   const totals = computeTotals(turns, metaEvents, session, parseErrors);
   return { session, turns, prompts, metaEvents, totals };
@@ -125,11 +156,14 @@ export function parseSessionText(text, file = '<memory>') {
         promptId: entry.promptId ?? null,
         timestamp: entry.timestamp ?? null,
         model: msg.model ?? null,
+        speed: null, // usage.speed — 'fast' when fast mode served the turn
         stopReason: null,
         isSidechain: entry.isSidechain === true,
         usage: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
         contextTokens: 0,
         thinkingChars: 0,
+        webSearch: 0,
+        webFetch: 0,
         text: '',
         toolCalls: [],
       };
@@ -138,6 +172,11 @@ export function parseSessionText(text, file = '<memory>') {
       if (!session.model && msg.model) session.model = msg.model;
     }
     if (msg.stop_reason) turn.stopReason = msg.stop_reason;
+    if (msg.usage?.speed) turn.speed = msg.usage.speed;
+    if (msg.usage?.server_tool_use) {
+      turn.webSearch = msg.usage.server_tool_use.web_search_requests ?? 0;
+      turn.webFetch = msg.usage.server_tool_use.web_fetch_requests ?? 0;
+    }
     // The same message.id appears on multiple lines (one per content block),
     // each carrying the full usage object — overwrite, never accumulate.
     if (msg.usage) {
@@ -212,12 +251,31 @@ export function parseSessionText(text, file = '<memory>') {
     if (entry.isMeta === true || /^<(local-command|command-name|command-message)/.test(textContent)) {
       const cmd = /<command-name>([^<]*)<\/command-name>/.exec(textContent)?.[1];
       if (cmd) metaEvents.push(meta('command', entry.timestamp, cmd.trim()));
+      // Setting changes only surface as command stdout (with ANSI codes):
+      // "Set effort level to xhigh (…)", "Set model to \x1b[1mFable 5\x1b[22m and saved…"
+      const stdout = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/.exec(textContent)?.[1];
+      if (stdout) {
+        const clean = stdout.replace(/\[[0-9;]*m|\[\d+m/g, '');
+        const effort = /Set effort level to (\w+)/.exec(clean)?.[1];
+        if (effort) metaEvents.push(meta('effort', entry.timestamp, effort));
+        const modelSet = /Set model to\s+(.+?)(?:\s+and saved.*)?$/m.exec(clean)?.[1];
+        if (modelSet) metaEvents.push(meta('model-change', entry.timestamp, modelSet.trim()));
+      }
+      return;
+    }
+    // A queued message can also surface later as a regular user line —
+    // upgrade the queued entry instead of listing the prompt twice.
+    const text = truncate(textContent, 2000);
+    const queued = prompts.find((p) => p.queued && p.text === text);
+    if (queued) {
+      queued.queued = false;
+      queued.afterTurn = turns.length - 1; // jump target: where it actually took effect
       return;
     }
     prompts.push({
       promptId: entry.promptId ?? null,
       timestamp: entry.timestamp ?? null,
-      text: truncate(textContent, 2000),
+      text,
       afterTurn: turns.length - 1, // index of the last turn seen before this prompt
     });
   }
@@ -301,6 +359,9 @@ function computeTotals(turns, metaEvents, session, parseErrors) {
   const tokens = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
   let toolCalls = 0;
   let toolErrors = 0;
+  let webSearch = 0;
+  let webFetch = 0;
+  let refusals = 0;
   for (const t of turns) {
     tokens.input += t.usage.input;
     tokens.output += t.usage.output;
@@ -308,12 +369,19 @@ function computeTotals(turns, metaEvents, session, parseErrors) {
     tokens.cacheCreation += t.usage.cacheCreation;
     toolCalls += t.toolCalls.length;
     toolErrors += t.toolCalls.filter((c) => c.result?.isError).length;
+    webSearch += t.webSearch ?? 0;
+    webFetch += t.webFetch ?? 0;
+    if (t.stopReason === 'refusal') refusals++;
   }
   return {
     turns: turns.length,
     toolCalls,
     toolErrors,
     tokens,
+    webSearch,
+    webFetch,
+    refusals,
+    compactions: metaEvents.filter((m) => m.kind === 'compaction').length,
     wallMs: msBetween(session.startedAt, session.endedAt),
     parseErrors,
   };

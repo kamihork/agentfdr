@@ -14,6 +14,7 @@ export function detect(model) {
     ...detectTokenSpikes(model),
     ...detectCacheThrash(model),
     ...detectFileChurn(model),
+    ...detectRefusals(model),
   ];
   const order = { critical: 0, warning: 1 };
   flags.sort((a, b) => order[a.severity] - order[b.severity] || a.turnStart - b.turnStart);
@@ -176,6 +177,21 @@ export function detectCacheThrash(model) {
     }
   }
   return flags;
+}
+
+/** A safety classifier or the model itself declined: stop_reason "refusal". */
+export function detectRefusals(model) {
+  return model.turns
+    .filter((t) => t.stopReason === 'refusal')
+    .map((t) => ({
+      type: 'refusal',
+      severity: 'critical',
+      title: 'Model refusal',
+      detail: 'stop_reason: refusal — the request was declined',
+      params: {},
+      turnStart: t.index,
+      turnEnd: t.index,
+    }));
 }
 
 /** The same file edited 6+ times — usually an edit/test/edit spiral. */

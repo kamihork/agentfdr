@@ -83,11 +83,11 @@
     background: var(--page);
     color: var(--text-primary);
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-    padding: 20px;
+    padding: 12px 16px 16px;
     max-width: 1400px;
     margin: 0 auto;
   }
-  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
   header h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
   header h1 span { color: var(--text-muted); font-weight: 400; }
   select, button {
@@ -98,25 +98,35 @@
   select { max-width: 480px; }
   button:hover { background: var(--wash); }
   .spacer { flex: 1; }
-  #meta { color: var(--text-secondary); font-size: 13px; margin-bottom: 4px; }
-  #hint { color: var(--text-muted); font-size: 11.5px; margin-bottom: 14px; }
+  #liveToggle.on {
+    color: #fff; background: var(--status-critical); border-color: var(--status-critical);
+    font-weight: 600;
+  }
+  #metabar { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+  #meta { color: var(--text-secondary); font-size: 12.5px; flex: 1; min-width: 300px; }
+  #meta .livebadge { color: var(--status-critical); font-weight: 650; }
+  #errbar {
+    background: var(--surface-1); border: 1px solid var(--status-critical); border-radius: 10px;
+    color: var(--status-critical); padding: 10px 14px; margin-bottom: 14px; font-size: 13px;
+  }
+  #hint { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
   #hint kbd {
     font: 11px ui-monospace, monospace; border: 1px solid var(--border); border-bottom-width: 2px;
     border-radius: 4px; padding: 0 4px; margin: 0 1px;
   }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
-  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
-  .tile .label { font-size: 12px; color: var(--text-secondary); }
-  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
-  .tile .sub { font-size: 12px; color: var(--text-muted); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 8px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 9px; padding: 7px 12px; }
+  .tile .label { font-size: 11.5px; color: var(--text-secondary); }
+  .tile .value { font-size: 19px; font-weight: 600; }
+  .tile .sub { font-size: 11.5px; color: var(--text-muted); }
   .tile .sub.bad { color: var(--status-critical); }
 
-  #flagstrip { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  #flagstrip { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .flagchip {
     display: inline-flex; align-items: center; gap: 6px;
     background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 999px; padding: 4px 12px; font-size: 12.5px; cursor: pointer;
+    border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer;
   }
   .flagchip:hover { background: var(--wash); }
   .flagchip.active { outline: 2px solid var(--ctx-2); }
@@ -125,13 +135,92 @@
   .flagchip.warning .ico { color: var(--status-warning); }
   .flagchip .range { color: var(--text-muted); }
 
-  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
-  .card h2 { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px 12px; margin-bottom: 10px; }
+  .card h2 { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+
+  /* Tab bar: exactly one main view visible at a time */
+  #tabs { display: flex; gap: 2px; margin-bottom: 8px; border-bottom: 1px solid var(--grid); }
+  #tabs button {
+    background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+    padding: 4px 12px 6px; color: var(--text-secondary); cursor: pointer; font-size: 13px;
+  }
+  #tabs button:hover { color: var(--text-primary); background: var(--wash); }
+  #tabs button.active { color: var(--text-primary); border-bottom-color: var(--ctx-2); font-weight: 600; }
+  #tabs .count { color: var(--text-muted); font-size: 11px; margin-left: 4px; }
+
+  /* Turn dissection: right side panel. Always visible on wide screens (empty
+     state when nothing is selected); slides in as an overlay on narrow ones.
+     Width is user-resizable via the left-edge grip (persisted). */
+  :root { --drawer-w: 540px; }
+  #detail {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 20;
+    width: min(var(--drawer-w), 94vw);
+    background: var(--surface-1); border-left: 1px solid var(--border);
+    box-shadow: -10px 0 32px rgba(0, 0, 0, 0.22);
+    transform: translateX(105%); visibility: hidden;
+    transition: transform 0.16s ease, visibility 0.16s;
+  }
+  #detailBody { height: 100%; overflow-y: auto; padding: 12px 16px 16px; }
+  #drawerGrip {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 7px; z-index: 3;
+    cursor: col-resize; touch-action: none;
+  }
+  #drawerGrip:hover, #drawerGrip.dragging { background: var(--select); }
+  body.resizing { cursor: col-resize; user-select: none; }
+  body.resizing #detail { transition: none; }
+  .dempty { color: var(--text-muted); font-size: 12.5px; text-align: center; padding: 40px 12px; }
+  @media (min-width: 1200px) {
+    #detail { transform: none; visibility: visible; }
+    /* Two-pane layout: main content flows up to the panel edge — no centered
+       max-width, otherwise a fixed gap opens between content and panel. */
+    body { max-width: none; padding-right: calc(min(var(--drawer-w), 94vw) + 20px); }
+  }
+  @media (max-width: 1199.98px) {
+    #detail.open { transform: translateX(0); visibility: visible; }
+  }
   .lanes { overflow-x: auto; }
-  #legend > .legend { margin-top: 8px; }
-  .legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; font-size: 12px; color: var(--text-secondary); }
+  #legend > .legend { margin-top: 5px; }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; font-size: 12px; color: var(--text-secondary); }
   .legend .key { display: inline-flex; align-items: center; gap: 6px; }
   .legend .swatch { width: 10px; height: 10px; border-radius: 3px; }
+  .legend button.key {
+    background: none; border: 1px solid transparent; border-radius: 6px;
+    padding: 2px 7px; color: inherit; font: inherit; cursor: pointer;
+  }
+  .legend button.key:hover { background: var(--wash); }
+  .legend button.key.active { border-color: var(--ctx-2); background: var(--select); }
+  .legend button.key.dimmed { opacity: 0.4; }
+  .legend .hint { color: var(--text-muted); font-size: 10.5px; }
+
+  #promptsList { list-style: none; margin: 0; padding: 0; }
+  #promptsList li {
+    display: flex; gap: 10px; align-items: baseline; padding: 6px 0;
+    border-bottom: 1px solid var(--grid); font-size: 12.5px;
+  }
+  #promptsList li:last-child { border-bottom: none; }
+  #promptsList button {
+    flex: none; font-size: 11.5px; padding: 1px 8px;
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  #promptsList .ptext { color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
+  #promptsList .pqueued {
+    flex: none; font-size: 10.5px; color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 0 7px;
+  }
+
+  #usageBody .urow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12.5px; margin: 3px 0; }
+  #usageBody .ulabel { min-width: 190px; color: var(--text-secondary); }
+  #usageBody .uval { font-weight: 600; font-variant-numeric: tabular-nums; }
+  #usageBody .upct { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .ubar { flex: 1; min-width: 100px; max-width: 260px; height: 8px; border-radius: 4px; background: var(--wash); overflow: hidden; }
+  .ubar > div { height: 100%; border-radius: 4px; background: var(--ctx-2); }
+  .ubar.hot > div { background: var(--status-warning); }
+  .ubar.over > div { background: var(--status-critical); }
+  #usageBody .unote { color: var(--text-muted); font-size: 11px; margin-top: 6px; }
+  #usageBody input {
+    width: 64px; font: inherit; font-size: 12px; background: var(--page); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px;
+  }
 
   #tooltip {
     position: fixed; z-index: 10; pointer-events: none; display: none;
@@ -148,13 +237,17 @@
   #tooltip .flagline.critical { color: var(--status-critical); }
   #tooltip .flagline.warning { color: var(--status-warning); }
 
-  #detail .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  #detail .head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    position: sticky; top: -12px; z-index: 2;
+    background: var(--surface-1); padding: 12px 0 8px; margin: -12px 0 8px;
+  }
   #detail .head .t { font-size: 15px; font-weight: 650; }
   #detail .head .m { color: var(--text-muted); font-size: 12.5px; }
   #detail .head button { padding: 2px 10px; font-size: 12.5px; }
   #detail .atext {
     white-space: pre-wrap; color: var(--text-secondary); font-size: 13px;
-    border-left: 2px solid var(--grid); padding-left: 10px; margin: 10px 0; max-height: 200px; overflow-y: auto;
+    border-left: 2px solid var(--grid); padding-left: 10px; margin: 8px 0; max-height: 150px; overflow-y: auto;
   }
   table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
   th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 4px 10px 4px 0; border-bottom: 1px solid var(--grid); }
@@ -176,31 +269,55 @@
     <h1>AgentFDR <span data-i18n="subtitle">/ flight recorder</span></h1>
     <select id="sessionSelect" aria-label="Session"></select>
     <div class="spacer"></div>
-    <button id="tableToggle" aria-pressed="false"></button>
+    <button id="liveToggle" aria-pressed="false"></button>
+    <button id="copyReport"></button>
     <button id="langToggle" title="Language / 言語"></button>
     <button id="themeToggle" title="Theme">◐</button>
   </header>
-  <div id="meta"></div>
-  <div id="hint"></div>
+  <div id="metabar">
+    <div id="meta"></div>
+    <div id="hint"></div>
+  </div>
+  <div id="errbar" class="hidden"></div>
   <div id="empty" class="hidden"></div>
 
   <div id="deck" class="hidden">
     <div class="tiles" id="tiles"></div>
     <div id="flagstrip"></div>
 
-    <div class="card" id="timelineCard">
+    <nav id="tabs" role="tablist">
+      <button data-tab="timeline" role="tab"></button>
+      <button data-tab="table" role="tab"></button>
+      <button data-tab="prompts" role="tab"></button>
+      <button data-tab="usage" role="tab"></button>
+    </nav>
+
+    <div class="card" id="timelineCard" data-panel="timeline">
       <h2 id="tlTitle"></h2>
       <div class="lanes" id="lanes"></div>
       <div id="legend"></div>
     </div>
 
-    <div class="card hidden" id="tableCard">
+    <div class="card hidden" id="tableCard" data-panel="table">
       <h2 id="tableTitle"></h2>
       <div style="overflow-x:auto"><table id="turnsTable"></table></div>
     </div>
 
-    <div class="card hidden" id="detail"></div>
+    <div class="card hidden" id="promptsCard" data-panel="prompts">
+      <h2 id="promptsTitle"></h2>
+      <ol id="promptsList"></ol>
+    </div>
+
+    <div class="card hidden" id="usageCard" data-panel="usage">
+      <h2 id="usageTitle"></h2>
+      <div id="usageBody"></div>
+    </div>
   </div>
+
+  <aside id="detail" aria-label="Turn detail">
+    <div id="drawerGrip" role="separator" aria-orientation="vertical" title="drag to resize"></div>
+    <div id="detailBody"></div>
+  </aside>
 
   <div id="tooltip" role="status"></div>
 
@@ -212,15 +329,37 @@ const I18N = {
   en: {
     subtitle: '/ flight recorder',
     tableView: 'Table view',
+    promptsView: 'Prompts',
+    promptsTitle: (n) => `Prompts — ${n}`,
+    copyReport: 'Copy report',
+    copied: '✓ Copied',
+    queuedBadge: 'sent mid-turn',
+    live: '● LIVE',
+    liveTitle: 'Auto-refresh while the session is running',
+    liveBadge: (t) => `● LIVE · updated ${t}`,
+    loadError: (m) => `Failed to load session: ${m}`,
+    legendHint: '(click to filter)',
+    effortBit: (v) => `effort ${v}`,
+    tabTimeline: 'Timeline',
+    usageView: 'Usage',
+    usageTitle: 'Plan usage — all projects',
+    u: {
+      plan: 'plan', window: 'current 5h window', noWindow: 'no active 5h window',
+      today: 'today', week: 'last 7 days', windows: (n) => `${n} windows`,
+      b5: '5h budget', bw: 'weekly budget', m: 'M tok',
+      calib: 'Exact plan limits are not published — calibrate budgets against /usage in Claude Code. Billed tokens = fresh input + cache write + output.',
+      byModel: 'by model', turns: (n) => `${n} turns`,
+    },
     timeline: (n) => `Timeline — ${n} turns`,
     turnsTable: 'Turns',
     empty: 'No sessions found under ~/.claude/projects.',
     hint: 'click a turn to dissect · <kbd>←</kbd><kbd>→</kbd> move · <kbd>Esc</kbd> close',
-    tiles: { turns: 'Turns', calls: 'Tool calls', out: 'Output tokens', peak: 'Context peak', flags: 'Anomalies' },
+    tiles: { turns: 'Turns', calls: 'Tool calls', out: 'Output tokens', peak: 'Context peak', cost: 'Est. cost', flags: 'Anomalies' },
     subs: {
       prompts: (n) => `${n} prompts`, errors: (n) => `${n} errors`, noErrors: 'no errors',
       fresh: (k) => `in ${k} fresh`, cacheTotal: (k) => `cache-read ${k} total`,
       critical: (n) => `${n} critical`, noneCritical: 'none critical',
+      estimate: 'list-price estimate', partialEstimate: 'partial — unknown model',
     },
     lanes: { tools: 'TOOLS', ctx: 'CONTEXT TOKENS', out: 'OUTPUT TOKENS' },
     legendGroups: { tools: 'TOOLS', tokens: 'TOKENS' },
@@ -236,6 +375,7 @@ const I18N = {
       usage: { input: 'fresh input', cacheRead: 'cache read', cacheWrite: 'cache write', out: 'output', thinking: 'thinking chars' },
       cols: ['tool', 'input', 'duration', 'result'], chars: 'chars', snippet: 'snippet',
       noResult: '(no result recorded)', error: 'ERROR ', prev: '‹ prev', next: 'next ›', close: '✕',
+      empty: 'Click a turn on the timeline (or an anomaly chip) and its dissection appears here. ←/→ steps between turns.',
     },
     tableCols: ['turn', 'time', 'tools', 'context', 'output', 'errors', 'flags'],
     compact: '⟲ compact',
@@ -246,6 +386,7 @@ const I18N = {
       'token-spike': (p) => `Context +${p.deltaK}k in one turn`,
       'cache-thrash': (p) => `${p.count} turns with zero cache hits`,
       'file-churn': (p) => `Same file edited ${p.count}×`,
+      'refusal': () => 'Model refusal',
     },
     flagDetails: {
       'loop': (p) => `Repeated ${p.repeats}× (${p.span} calls): ${p.gram}`,
@@ -254,20 +395,43 @@ const I18N = {
       'token-spike': (p) => `${p.fromK}k → ${p.toK}k`,
       'cache-thrash': () => 'Full input re-read each turn',
       'file-churn': (p) => p.path,
+      'refusal': () => 'stop_reason: refusal — the request was declined',
     },
   },
   ja: {
     subtitle: '/ フライトレコーダー',
     tableView: 'テーブル表示',
+    promptsView: 'プロンプト',
+    promptsTitle: (n) => `プロンプト一覧 — ${n}件`,
+    copyReport: 'レポートをコピー',
+    copied: '✓ コピーしました',
+    queuedBadge: '作業中に送信',
+    live: '● LIVE',
+    liveTitle: 'セッション実行中に自動更新',
+    liveBadge: (t) => `● LIVE · 更新 ${t}`,
+    loadError: (m) => `セッションの読み込みに失敗しました: ${m}`,
+    legendHint: '(クリックで絞り込み)',
+    effortBit: (v) => `effort ${v}`,
+    tabTimeline: 'タイムライン',
+    usageView: '使用量',
+    usageTitle: 'プラン使用量 — 全プロジェクト',
+    u: {
+      plan: 'プラン', window: '現在の5時間ウィンドウ', noWindow: 'アクティブな5時間ウィンドウなし',
+      today: '今日', week: '直近7日', windows: (n) => `ウィンドウ${n}回`,
+      b5: '5h予算', bw: '週予算', m: 'Mトークン',
+      calib: '正確な上限は非公開のため、Claude Code の /usage と見比べて予算を設定してください。課金トークン = 新規入力+キャッシュ書込+出力。',
+      byModel: 'モデル別', turns: (n) => `${n}ターン`,
+    },
     timeline: (n) => `タイムライン — ${n}ターン`,
     turnsTable: 'ターン一覧',
     empty: '~/.claude/projects にセッションが見つかりません。',
     hint: 'ターンをクリックで解剖 · <kbd>←</kbd><kbd>→</kbd> 移動 · <kbd>Esc</kbd> 閉じる',
-    tiles: { turns: 'ターン数', calls: 'ツール呼び出し', out: '出力トークン', peak: 'コンテキスト最大', flags: '異常検知' },
+    tiles: { turns: 'ターン数', calls: 'ツール呼び出し', out: '出力トークン', peak: 'コンテキスト最大', cost: '推定コスト', flags: '異常検知' },
     subs: {
       prompts: (n) => `プロンプト ${n}件`, errors: (n) => `エラー ${n}件`, noErrors: 'エラーなし',
       fresh: (k) => `新規入力 ${k}`, cacheTotal: (k) => `キャッシュ読取 計${k}`,
       critical: (n) => `重大 ${n}件`, noneCritical: '重大なし',
+      estimate: '定価ベースの概算', partialEstimate: '不明モデル分を除く概算',
     },
     lanes: { tools: 'ツール', ctx: 'コンテキストトークン', out: '出力トークン' },
     legendGroups: { tools: 'ツール', tokens: 'トークン' },
@@ -283,6 +447,7 @@ const I18N = {
       usage: { input: '新規入力', cacheRead: 'キャッシュ読取', cacheWrite: 'キャッシュ書込', out: '出力', thinking: '思考文字数' },
       cols: ['ツール', '入力', '所要時間', '結果'], chars: '文字', snippet: 'スニペット',
       noResult: '(結果の記録なし)', error: 'エラー ', prev: '‹ 前', next: '次 ›', close: '✕',
+      empty: 'タイムラインのターン(または異常チップ)をクリックすると、ここに解剖結果が表示されます。←/→ でターン移動。',
     },
     tableCols: ['ターン', '時刻', 'ツール', 'コンテキスト', '出力', 'エラー', 'フラグ'],
     compact: '⟲ 圧縮',
@@ -293,6 +458,7 @@ const I18N = {
       'token-spike': (p) => `コンテキスト+${p.deltaK}k/ターン`,
       'cache-thrash': (p) => `${p.count}ターン キャッシュヒットなし`,
       'file-churn': (p) => `同一ファイルを${p.count}回編集`,
+      'refusal': () => 'モデルによる拒否',
     },
     flagDetails: {
       'loop': (p) => `同一パターンを${p.repeats}回反復(${p.span}回の呼び出し): ${p.gram}`,
@@ -301,6 +467,7 @@ const I18N = {
       'token-spike': (p) => `${p.fromK}k → ${p.toK}k`,
       'cache-thrash': () => '毎ターン全入力を再読込',
       'file-churn': (p) => p.path,
+      'refusal': () => 'stop_reason: refusal — リクエストが拒否されました',
     },
   },
 };
@@ -314,6 +481,59 @@ const flagDetail = (f) => (T().flagDetails[f.type] && f.params ? T().flagDetails
 let MODEL = null;
 let selectedTurn = null;
 let TL = null; // geometry of the current timeline render, for the selection overlay
+let LIVE = false;       // auto-refresh (watch mode)
+let MTIME = null;       // transcript mtime of the currently rendered model
+let pollTimer = null;
+let USAGE = null;       // /api/usage payload (fetched when the tab opens)
+let TAB = localStorage.getItem('agentfdr.tab') || 'timeline';
+const TOOLFILTER = new Set(); // legend filter: empty = show all tool groups
+
+/** Drag the panel's left edge to resize; width persists across sessions. */
+function initDrawerResize() {
+  const grip = $('drawerGrip');
+  const clamp = (w) => Math.round(Math.min(Math.max(w, 360), Math.min(900, window.innerWidth * 0.7)));
+  const saved = Number(localStorage.getItem('agentfdr.drawerW'));
+  if (saved >= 360) document.documentElement.style.setProperty('--drawer-w', clamp(saved) + 'px');
+
+  // Listen on window (not the grip): drags outrun a 7px-wide element instantly,
+  // and pointer capture is unreliable for synthetic input.
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    grip.classList.add('dragging');
+    document.body.classList.add('resizing');
+    let width = null;
+    const move = (ev) => {
+      width = clamp(window.innerWidth - ev.clientX);
+      document.documentElement.style.setProperty('--drawer-w', width + 'px');
+    };
+    const up = (ev) => {
+      if (ev.clientX != null) move(ev);
+      grip.classList.remove('dragging');
+      document.body.classList.remove('resizing');
+      if (width != null) localStorage.setItem('agentfdr.drawerW', String(width));
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  });
+}
+
+/** One main view at a time: timeline | table | prompts | usage. */
+function switchTab(name) {
+  TAB = name;
+  localStorage.setItem('agentfdr.tab', name);
+  for (const btn of document.querySelectorAll('#tabs button')) {
+    btn.classList.toggle('active', btn.dataset.tab === name);
+    btn.setAttribute('aria-selected', String(btn.dataset.tab === name));
+  }
+  for (const panel of document.querySelectorAll('[data-panel]')) {
+    panel.classList.toggle('hidden', panel.dataset.panel !== name);
+  }
+  if (name === 'usage') loadUsage(); // refresh on every open — it's cheap (server caches)
+}
 
 const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -343,6 +563,7 @@ const fmtMs = (ms) => {
   return m < 60 ? m + 'm ' + (s % 60) + 's' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
 };
 const hhmm = (ts) => ts ? new Date(ts).toTimeString().slice(0, 8) : '';
+const fmtUsd = (u) => u == null ? '?' : u >= 100 ? '$' + Math.round(u) : u >= 1 ? '$' + u.toFixed(2) : '$' + u.toFixed(3);
 
 // ---------- boot ----------
 init();
@@ -363,12 +584,16 @@ async function init() {
     localStorage.setItem('agentfdr.lang', LANG);
     applyChrome();
     if (MODEL) render();
+    if (USAGE) renderUsage();
   });
-  $('tableToggle').addEventListener('click', () => {
-    const card = $('tableCard');
-    card.classList.toggle('hidden');
-    $('tableToggle').setAttribute('aria-pressed', String(!card.classList.contains('hidden')));
-  });
+  for (const btn of document.querySelectorAll('#tabs button')) {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  }
+  initDrawerResize();
+  $('liveToggle').addEventListener('click', () => setLive(!LIVE));
+  $('copyReport').addEventListener('click', copyReport);
+  // Catch up immediately when the tab becomes visible again (polling pauses while hidden).
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && LIVE) poll(); });
 
   document.addEventListener('keydown', (e) => {
     if (!MODEL || /^(SELECT|INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
@@ -388,6 +613,7 @@ async function init() {
   });
 
   applyChrome();
+  switchTab(TAB);
 
   const res = await fetch('/api/sessions');
   const { projects } = await res.json();
@@ -409,14 +635,164 @@ async function init() {
   const want = location.hash.slice(1);
   const first = want && [...sel.options].some((o) => o.value === want) ? want : sel.options[0].value;
   sel.value = first;
-  load(first);
+  await load(first);
+  // `agentfdr watch` opens the viewer with ?live=1
+  if (new URLSearchParams(location.search).get('live') === '1') setLive(true);
+}
+
+function setLive(on) {
+  LIVE = on;
+  $('liveToggle').classList.toggle('on', on);
+  $('liveToggle').setAttribute('aria-pressed', String(on));
+  clearInterval(pollTimer);
+  if (on) pollTimer = setInterval(poll, 2000);
+  if (MODEL) renderMeta();
+}
+
+/** Live-mode tick: cheap mtime probe; re-render only when the transcript grew. */
+async function poll(force = false) {
+  const id = $('sessionSelect').value;
+  if (!id || (document.hidden && !force)) return; // paused while the tab is hidden
+  try {
+    const res = await fetch('/api/session?id=' + encodeURIComponent(id) + (MTIME ? '&since=' + MTIME : ''));
+    const data = await res.json();
+    if (data.error || data.unchanged) return;
+    MTIME = data.mtimeMs ?? null;
+    const followTail = selectedTurn == null || selectedTurn === MODEL.turns.length - 1;
+    MODEL = data;
+    if (selectedTurn != null) {
+      selectedTurn = followTail ? MODEL.turns.length - 1 : Math.min(selectedTurn, MODEL.turns.length - 1);
+    }
+    render();
+    if (followTail && MODEL.turns.length) scrollToTurn(MODEL.turns.length - 1);
+  } catch {
+    // transient (server restarting, fs race) — next tick retries
+  }
+}
+
+// ---------- plan usage (all projects) ----------
+const kM = (n) => n >= 1_000_000 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1000 ? Math.round(n / 1000) + 'k' : String(n);
+const budgetM = (key) => {
+  const v = Number(localStorage.getItem('agentfdr.' + key));
+  return Number.isFinite(v) && v > 0 ? v * 1_000_000 : null;
+};
+
+async function loadUsage() {
+  $('usageBody').textContent = '…';
+  try {
+    USAGE = await fetch('/api/usage').then((r) => r.json());
+  } catch (err) {
+    $('usageBody').textContent = T().loadError(err.message || String(err));
+    return;
+  }
+  renderUsage();
+}
+
+function renderUsage() {
+  const L = T().u;
+  $('usageTitle').textContent = T().usageTitle;
+  const body = $('usageBody');
+  body.textContent = '';
+  const b5 = budgetM('b5M') ?? USAGE.budgets?.fiveHour ?? null;
+  const bw = budgetM('bwM') ?? USAGE.budgets?.week ?? null;
+
+  const row = (label, valueText, billed, budget) => {
+    const r = add(body, 'div', 'urow');
+    add(r, 'span', 'ulabel', label);
+    add(r, 'span', 'uval', valueText);
+    if (budget && billed != null) {
+      const pct = Math.round((billed / budget) * 100);
+      const bar = add(r, 'div', 'ubar' + (pct >= 100 ? ' over' : pct >= 80 ? ' hot' : ''));
+      const fill = add(bar, 'div', '');
+      fill.style.width = Math.min(100, pct) + '%';
+      add(r, 'span', 'upct', pct + '% / ' + kM(budget));
+    }
+    return r;
+  };
+  const fmtBucket = (b) => kM(b.billed) + ' tok · ~' + fmtUsd(b.usd);
+  const hm = (ts) => new Date(ts).toTimeString().slice(0, 5);
+
+  if (USAGE.plan && (USAGE.plan.organizationType || USAGE.plan.rateLimitTier)) {
+    row(L.plan, [USAGE.plan.organizationType, USAGE.plan.rateLimitTier].filter(Boolean).join(' · '));
+  }
+  const w = USAGE.windows.current;
+  if (w) row(L.window + ' (' + hm(w.startedAt) + '–' + hm(w.endsAt) + ')', fmtBucket(w), w.billed, b5);
+  else row(L.window, L.noWindow);
+  row(L.today, fmtBucket(USAGE.today));
+  row(L.week + ' · ' + L.windows(USAGE.windows.count7d), fmtBucket(USAGE.week), USAGE.week.billed, bw);
+
+  // budget inputs (client-side; stored in localStorage, override env defaults)
+  const brow = add(body, 'div', 'urow');
+  for (const [label, key] of [[L.b5, 'b5M'], [L.bw, 'bwM']]) {
+    add(brow, 'span', 'ulabel', label + ' (' + L.m + ')').style.minWidth = 'auto';
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.min = '0';
+    inp.step = '1';
+    inp.value = localStorage.getItem('agentfdr.' + key) ?? '';
+    inp.addEventListener('change', () => {
+      localStorage.setItem('agentfdr.' + key, inp.value);
+      renderUsage();
+    });
+    brow.appendChild(inp);
+  }
+
+  // daily bars (billed tokens, oldest -> newest)
+  const days = USAGE.days;
+  const bw_ = 18, gap = 4, chartH = 56, labelH = 14, padL = 4;
+  const width = padL + days.length * (bw_ + gap);
+  const maxB = Math.max(1, ...days.map((d) => d.billed));
+  const svg = mk('svg', { width, height: chartH + labelH, viewBox: `0 0 ${width} ${chartH + labelH}` });
+  svg.style.display = 'block';
+  svg.style.marginTop = '8px';
+  days.forEach((d, i) => {
+    const h = Math.max(1, (d.billed / maxB) * (chartH - 2));
+    const r = mk('rect', { x: padL + i * (bw_ + gap), y: chartH - h, width: bw_, height: h, rx: 2, fill: css('--ctx-2') });
+    const tip = mk('title', {});
+    tip.textContent = d.date + ' — ' + fmtBucket(d);
+    r.appendChild(tip);
+    svg.appendChild(r);
+    if (i === 0 || i === days.length - 1 || i % 7 === 0) {
+      const lbl = mk('text', { x: padL + i * (bw_ + gap) + bw_ / 2, y: chartH + 11, 'text-anchor': 'middle', fill: css('--text-muted'), 'font-size': 9 });
+      lbl.textContent = d.date.slice(5);
+      svg.appendChild(lbl);
+    }
+  });
+  body.appendChild(svg);
+
+  // per-model
+  const mrow = add(body, 'div', 'urow');
+  add(mrow, 'span', 'ulabel', L.byModel);
+  add(mrow, 'span', '', USAGE.models.map((m) => `${m.model} ${L.turns(m.turns)} · ${kM(m.billed)} tok · ~${fmtUsd(m.usd)}`).join('  |  '));
+
+  add(body, 'div', 'unote', L.calib);
+}
+
+async function copyReport() {
+  const id = $('sessionSelect').value;
+  if (!id) return;
+  const btn = $('copyReport');
+  try {
+    const res = await fetch('/api/blame?id=' + encodeURIComponent(id) + '&lang=' + LANG);
+    await navigator.clipboard.writeText(await res.text());
+    btn.textContent = T().copied;
+  } catch {
+    btn.textContent = '✗';
+  }
+  setTimeout(() => { btn.textContent = T().copyReport; }, 1500);
 }
 
 /** Static chrome strings (buttons, hints) — everything outside render(). */
 function applyChrome() {
   document.documentElement.lang = LANG;
   document.querySelector('[data-i18n="subtitle"]').textContent = T().subtitle;
-  $('tableToggle').textContent = T().tableView;
+  const tabLabels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView };
+  for (const btn of document.querySelectorAll('#tabs button')) {
+    btn.textContent = tabLabels[btn.dataset.tab];
+  }
+  $('copyReport').textContent = T().copyReport;
+  $('liveToggle').textContent = T().live;
+  $('liveToggle').title = T().liveTitle;
   $('langToggle').textContent = LANG === 'ja' ? 'EN' : '日本語';
   $('empty').textContent = T().empty;
   $('hint').innerHTML = T().hint; // trusted constant, contains <kbd>
@@ -425,8 +801,19 @@ function applyChrome() {
 
 async function load(id) {
   location.hash = id;
-  const res = await fetch('/api/session?id=' + encodeURIComponent(id));
-  MODEL = await res.json();
+  $('errbar').classList.add('hidden');
+  try {
+    const res = await fetch('/api/session?id=' + encodeURIComponent(id));
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    MODEL = data;
+    MTIME = data.mtimeMs ?? null;
+  } catch (err) {
+    const bar = $('errbar');
+    bar.textContent = T().loadError(err.message || String(err));
+    bar.classList.remove('hidden');
+    return;
+  }
   selectedTurn = null;
   render();
 }
@@ -438,20 +825,45 @@ function render() {
   renderTiles();
   renderFlags();
   renderTimeline();
+  renderPrompts();
   renderTable();
   renderDetail();
   updateSelection();
+  updateTabCounts();
+}
+
+/** Tab labels get lightweight counts so you know what's behind them. */
+function updateTabCounts() {
+  const counts = { table: MODEL.turns.length, prompts: MODEL.prompts.length };
+  const labels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView };
+  for (const btn of document.querySelectorAll('#tabs button')) {
+    btn.textContent = labels[btn.dataset.tab];
+    const c = counts[btn.dataset.tab];
+    if (c != null) add(btn, 'span', 'count', String(c));
+  }
 }
 
 function renderMeta() {
   const s = MODEL.session, t = MODEL.totals;
   const el = $('meta');
   el.textContent = '';
+  // All models that produced turns, with counts when the session switched.
+  const models = (s.models && s.models.length)
+    ? s.models.map((m) => s.models.length > 1 ? m.model + ' ×' + m.turns : m.model).join(' · ')
+    : s.model;
+  const fastTurns = MODEL.turns.filter((x) => x.speed === 'fast').length;
   const bits = [
-    s.title, s.model, s.cwd && s.cwd + (s.gitBranch ? ' (' + s.gitBranch + ')' : ''),
+    s.title, models,
+    fastTurns > 0 && '⚡fast ×' + fastTurns,
+    s.effort && T().effortBit(s.effort),
+    s.cwd && s.cwd + (s.gitBranch ? ' (' + s.gitBranch + ')' : ''),
     s.startedAt && new Date(s.startedAt).toLocaleString(), t.wallMs != null && fmtMs(t.wallMs),
   ].filter(Boolean);
   el.textContent = bits.join('  ·  ');
+  if (LIVE) {
+    el.appendChild(document.createTextNode('  ·  '));
+    add(el, 'span', 'livebadge', T().liveBadge(hhmm(Date.now())));
+  }
 }
 
 function renderTiles() {
@@ -467,6 +879,12 @@ function renderTiles() {
     [L.tiles.peak, kTok(peak), L.subs.cacheTotal(kTok(t.tokens.cacheRead))],
     [L.tiles.flags, String(flags.length), crit ? L.subs.critical(crit) : L.subs.noneCritical, crit > 0],
   ];
+  if (MODEL.cost && MODEL.cost.usd != null) {
+    tiles.splice(4, 0, [
+      L.tiles.cost, '~' + fmtUsd(MODEL.cost.usd),
+      MODEL.cost.unknownModels?.length ? L.subs.partialEstimate : L.subs.estimate,
+    ]);
+  }
   const wrap = $('tiles');
   wrap.textContent = '';
   for (const [label, value, sub, bad] of tiles) {
@@ -491,6 +909,7 @@ function renderFlags() {
     add(chip, 'span', 'range', f.turnStart === f.turnEnd ? 't' + f.turnStart : 't' + f.turnStart + '–' + f.turnEnd);
     chip.title = flagDetail(f);
     chip.addEventListener('click', () => {
+      switchTab('timeline'); // flags are ranges on the timeline
       selectedTurn = f.turnStart;
       renderDetail();
       updateSelection(f);
@@ -516,9 +935,9 @@ function renderTimeline() {
   const padL = 46, padR = 12;
   const width = padL + n * colW + padR;
 
-  const maxTools = Math.min(10, Math.max(1, ...turns.map((t) => t.toolCalls.length)));
-  const toolsH = maxTools * 11 + 4;
-  const ctxH = 110, outH = 54, marksH = 20, axisH = 22, gap = 12, header = 14;
+  const maxTools = Math.min(8, Math.max(1, ...turns.map((t) => t.toolCalls.length)));
+  const toolsH = maxTools * 10 + 4;
+  const ctxH = 80, outH = 40, marksH = 18, axisH = 20, gap = 9, header = 13;
   const yTools = marksH + header, yCtx = yTools + toolsH + gap + header, yOut = yCtx + ctxH + gap + header, yAxis = yOut + outH + 8;
   const height = yAxis + axisH;
 
@@ -585,9 +1004,11 @@ function renderTimeline() {
 
     // tool blocks (top-down stack, 2px surface gaps)
     t.toolCalls.slice(0, maxTools).forEach((c, j) => {
+      const g = toolGroup(c.name);
+      const fdim = TOOLFILTER.size && !TOOLFILTER.has(g) ? 0.12 : 1;
       const r = mk('rect', {
-        x: gx, y: yTools + 4 + j * 11, width: barW, height: 9, rx: 2,
-        fill: groupColor(toolGroup(c.name)), opacity: dim,
+        x: gx, y: yTools + 4 + j * 10, width: barW, height: 8, rx: 2,
+        fill: groupColor(g), opacity: dim * fdim,
       });
       if (c.result && c.result.isError) {
         r.setAttribute('stroke', css('--status-critical'));
@@ -596,7 +1017,7 @@ function renderTimeline() {
       svg.appendChild(r);
     });
     if (t.toolCalls.length > maxTools) {
-      const more = mk('text', { x: gx + barW / 2, y: yTools + 4 + maxTools * 11 + 8, 'text-anchor': 'middle', fill: css('--text-muted'), 'font-size': 9 });
+      const more = mk('text', { x: gx + barW / 2, y: yTools + 4 + maxTools * 10 + 8, 'text-anchor': 'middle', fill: css('--text-muted'), 'font-size': 9 });
       more.textContent = '+' + (t.toolCalls.length - maxTools);
       svg.appendChild(more);
     }
@@ -690,13 +1111,33 @@ function renderLegend() {
   const L = T();
   legend.textContent = '';
   // Two rows: tool identities and token segments never share a line.
+  // Tool keys are buttons: clicking filters the tools lane to those groups.
   const toolsRow = document.createElement('div');
   toolsRow.className = 'legend';
   const present = new Set();
   for (const t of MODEL.turns) for (const c of t.toolCalls) present.add(toolGroup(c.name));
   const order = [...TOOL_GROUPS.map(([g]) => g), 'other'].filter((g) => present.has(g));
   groupTitle(toolsRow, L.legendGroups.tools);
-  for (const g of order) key(toolsRow, groupColor(g), L.toolGroups[g]);
+  for (const g of order) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'key' +
+      (TOOLFILTER.has(g) ? ' active' : '') +
+      (TOOLFILTER.size && !TOOLFILTER.has(g) ? ' dimmed' : '');
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    sw.style.background = groupColor(g);
+    btn.appendChild(sw);
+    btn.appendChild(document.createTextNode(L.toolGroups[g]));
+    btn.addEventListener('click', () => {
+      if (TOOLFILTER.has(g)) TOOLFILTER.delete(g);
+      else TOOLFILTER.add(g);
+      renderTimeline();
+      updateSelection();
+    });
+    toolsRow.appendChild(btn);
+  }
+  add(toolsRow, 'span', 'hint', L.legendHint);
   legend.appendChild(toolsRow);
 
   const tokRow = document.createElement('div');
@@ -738,7 +1179,12 @@ function showTooltip(e, i) {
   const L = T();
   const tt = $('tooltip');
   tt.textContent = '';
-  add(tt, 'div', 'tt-title', L.tt.turn(i) + (t.isSidechain ? ' · ' + L.tt.subagent : '') + (t.timestamp ? ' · ' + hhmm(t.timestamp) : ''));
+  const multiModel = MODEL.session.models && MODEL.session.models.length > 1;
+  add(tt, 'div', 'tt-title', L.tt.turn(i)
+    + (t.isSidechain ? ' · ' + L.tt.subagent : '')
+    + (multiModel && t.model ? ' · ' + t.model.replace(/^claude-/, '') : '')
+    + (t.speed === 'fast' ? ' · ⚡fast' : '')
+    + (t.timestamp ? ' · ' + hhmm(t.timestamp) : ''));
 
   row(tt, css('--ctx-2'), kTok(t.contextTokens), L.tt.context(kTok(t.usage.cacheRead)));
   row(tt, css('--out'), kTok(t.usage.output), L.tt.outTokens);
@@ -779,6 +1225,30 @@ function row(tt, color, value, label) {
   tt.appendChild(r);
 }
 
+// ---------- prompts card (the session's structure at a glance) ----------
+function renderPrompts() {
+  const list = $('promptsList');
+  $('promptsTitle').textContent = T().promptsTitle(MODEL.prompts.length);
+  list.textContent = '';
+  for (const p of MODEL.prompts) {
+    const li = document.createElement('li');
+    const turn = Math.max(0, Math.min(MODEL.turns.length - 1, (p.afterTurn ?? -1) + 1));
+    const btn = document.createElement('button');
+    btn.textContent = 't' + turn + (p.timestamp ? ' · ' + hhmm(p.timestamp) : '');
+    btn.addEventListener('click', () => {
+      switchTab('timeline'); // jumping to a turn only makes sense on the timeline
+      selectedTurn = turn;
+      renderDetail();
+      updateSelection();
+      scrollToTurn(turn);
+    });
+    li.appendChild(btn);
+    if (p.queued) add(li, 'span', 'pqueued', T().queuedBadge);
+    add(li, 'span', 'ptext', p.text.length > 300 ? p.text.slice(0, 300) + '…' : p.text);
+    list.appendChild(li);
+  }
+}
+
 // ---------- table view (the no-hover, no-color path to every value) ----------
 function renderTable() {
   const table = $('turnsTable');
@@ -817,16 +1287,22 @@ function renderTable() {
 
 // ---------- turn detail ----------
 function renderDetail() {
-  const card = $('detail');
+  const panel = $('detail');
+  const card = $('detailBody');
   const L = T();
-  if (selectedTurn == null || !MODEL.turns[selectedTurn]) { card.classList.add('hidden'); return; }
+  if (selectedTurn == null || !MODEL.turns[selectedTurn]) {
+    panel.classList.remove('open'); // narrow screens: slide away; wide: stays with empty state
+    card.textContent = '';
+    add(card, 'div', 'dempty', L.detail.empty);
+    return;
+  }
   const t = MODEL.turns[selectedTurn];
-  card.classList.remove('hidden');
+  panel.classList.add('open');
   card.textContent = '';
 
   const head = add(card, 'div', 'head');
   add(head, 'span', 't', L.detail.turn(t.index));
-  add(head, 'span', 'm', [t.timestamp && new Date(t.timestamp).toLocaleTimeString(), t.model, t.stopReason && L.detail.stop(t.stopReason), t.isSidechain && L.detail.subagent].filter(Boolean).join(' · '));
+  add(head, 'span', 'm', [t.timestamp && new Date(t.timestamp).toLocaleTimeString(), t.model, t.speed === 'fast' && '⚡fast', t.stopReason && L.detail.stop(t.stopReason), t.isSidechain && L.detail.subagent].filter(Boolean).join(' · '));
   const spacer = add(head, 'span', '');
   spacer.style.flex = '1';
   navBtn(head, L.detail.prev, () => step(-1), selectedTurn > 0);
