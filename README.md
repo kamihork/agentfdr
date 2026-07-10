@@ -117,4 +117,4 @@ Contributions welcome — especially adapters for other agents and new detector 
 
 ## License
 
-[Apache-2.0](LICENSE)
+[MIT](LICENSE)

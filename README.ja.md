@@ -117,4 +117,4 @@ node bin/agentfdr.js     # ソースから CLI を実行
 
 ## ライセンス
 
-[Apache-2.0](LICENSE)
+[MIT](LICENSE)
