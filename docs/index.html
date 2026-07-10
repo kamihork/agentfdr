@@ -283,7 +283,8 @@ const I18N = {
   },
 };
 
-let lang = localStorage.getItem('agentfdr.lp.lang') || (navigator.language && navigator.language.startsWith('ja') ? 'ja' : 'en');
+// English by default for a global audience; 日本語 via the header toggle (persisted).
+let lang = localStorage.getItem('agentfdr.lp.lang') || 'en';
 
 function apply() {
   const d = I18N[lang];
