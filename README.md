@@ -56,6 +56,8 @@ Autonomous agent failures are hard to debug because the evidence is gone by the 
 
 Existing LLM observability tools (LangSmith, Langfuse, AgentOps) assume **you instrument your own app with their SDK and send traces to their cloud**. A prebuilt local agent like Claude Code offers no instrumentation point — but it doesn't need one. The data is already on disk. What's missing is the crash investigator's toolkit. This is that toolkit.
 
+Zooming out: working with coding agents is becoming **loop engineering**. You no longer just prompt a model — you design and operate an agent loop, and the **harness** (Claude Code and friends) decides what enters the context, which tools fire, and when to stop. Improving that loop takes feedback, and you can't engineer a loop you can't see. agentfdr is the instrument panel: it turns every looping, drifting, token-burning run into a lesson instead of a mystery.
+
 ## Commands
 
 ```
