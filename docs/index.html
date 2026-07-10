@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentfdr — flight data recorder for local coding agents</title>
+<meta name="description" content="When Claude Code loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact. Zero instrumentation, local-first.">
+<meta property="og:title" content="agentfdr — flight data recorder for local coding agents">
+<meta property="og:description" content="Dissect why Claude Code looped, drifted, or burned tokens. npx agentfdr — zero instrumentation, zero cloud, zero config.">
+<meta property="og:image" content="https://kamihork.github.io/agentfdr/assets/screenshot-dark.png">
+<meta property="og:url" content="https://kamihork.github.io/agentfdr/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+<style>
+  :root {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --text: #ffffff;
+    --text-2: #c3c2b7;
+    --muted: #898781;
+    --border: rgba(255, 255, 255, 0.10);
+    --grid: #2c2c2a;
+    --accent: #f4511e;      /* the flight-recorder orange */
+    --blue: #3987e5;
+    --green: #199e70;
+    --amber: #c98500;
+    --wash: rgba(255, 255, 255, 0.06);
+    --shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --page: #f9f9f7; --surface: #fcfcfb; --text: #0b0b0b; --text-2: #52514e;
+      --muted: #898781; --border: rgba(11, 11, 11, 0.10); --grid: #e1e0d9;
+      --blue: #2a78d6; --green: #1baf7a; --amber: #eda100;
+      --wash: rgba(11, 11, 11, 0.05); --shadow: 0 24px 80px rgba(30, 30, 25, 0.18);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--page); color: var(--text);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* nav */
+  nav { display: flex; align-items: center; gap: 14px; padding: 18px 0; }
+  nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; font-size: 17px; }
+  nav .brand img { width: 30px; height: 30px; }
+  nav .spacer { flex: 1; }
+  nav a.nl { color: var(--text-2); text-decoration: none; font-size: 14.5px; padding: 6px 10px; border-radius: 8px; }
+  nav a.nl:hover { background: var(--wash); color: var(--text); }
+  nav button {
+    font: inherit; font-size: 13.5px; color: var(--text-2); background: none;
+    border: 1px solid var(--border); border-radius: 8px; padding: 5px 12px; cursor: pointer;
+  }
+  nav button:hover { background: var(--wash); }
+
+  /* hero */
+  .hero { text-align: center; padding: 56px 0 30px; }
+  .hero img.mark { width: 92px; height: 92px; margin-bottom: 22px; }
+  .hero h1 { font-size: clamp(32px, 5.2vw, 52px); line-height: 1.15; letter-spacing: -0.02em; font-weight: 800; }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .hero p.sub { color: var(--text-2); font-size: clamp(16px, 2.2vw, 19px); max-width: 640px; margin: 18px auto 0; }
+  .install {
+    display: inline-flex; align-items: center; gap: 14px; margin-top: 30px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px 20px; font-size: 18px;
+  }
+  .install .dollar { color: var(--accent); user-select: none; }
+  .install button {
+    font: inherit; font-size: 13px; color: var(--text-2); background: none;
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px 12px; cursor: pointer;
+  }
+  .install button:hover { background: var(--wash); }
+  .ctas { margin-top: 22px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; text-decoration: none; font-weight: 600; font-size: 15px;
+    border-radius: 10px; padding: 10px 22px; border: 1px solid var(--border);
+  }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost:hover { background: var(--wash); }
+  .zeroes { margin-top: 26px; color: var(--muted); font-size: 14px; letter-spacing: 0.02em; }
+  .zeroes b { color: var(--text-2); font-weight: 600; }
+
+  .shot { margin: 44px auto 0; }
+  .shot img {
+    width: 100%; border-radius: 14px; border: 1px solid var(--border);
+    box-shadow: var(--shadow); display: block;
+  }
+
+  /* sections */
+  section { padding: 72px 0 0; }
+  h2.sec { font-size: clamp(24px, 3.4vw, 34px); letter-spacing: -0.015em; font-weight: 750; text-align: center; }
+  p.seclead { color: var(--text-2); text-align: center; max-width: 640px; margin: 12px auto 0; }
+
+  .whygrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-top: 34px; }
+  .why {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+  }
+  .why .t { font-weight: 700; margin-bottom: 6px; }
+  .why .t span { margin-right: 8px; }
+  .why p { color: var(--text-2); font-size: 14.5px; }
+
+  .featgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 34px; }
+  .feat {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px 20px 18px;
+  }
+  .feat .ico { font-size: 22px; }
+  .feat .t { font-weight: 700; margin: 8px 0 4px; }
+  .feat p { color: var(--text-2); font-size: 14.5px; }
+
+  .usage { display: grid; grid-template-columns: 1fr; gap: 28px; align-items: center; margin-top: 34px; }
+  @media (min-width: 900px) { .usage { grid-template-columns: 5fr 7fr; } }
+  .usage .txt p { color: var(--text-2); margin-top: 10px; }
+  .usage img { width: 100%; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+
+  .cmds {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    margin-top: 34px; padding: 22px 26px; overflow-x: auto;
+  }
+  .cmds pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; line-height: 2; }
+  .cmds .c { color: var(--muted); }
+  .cmds .k { color: var(--blue); font-weight: 600; }
+
+  footer {
+    margin-top: 88px; border-top: 1px solid var(--grid); padding: 30px 0 48px;
+    color: var(--muted); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
+  }
+  footer a { color: var(--text-2); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+  footer .spacer { flex: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="#"><img src="assets/logo.svg" alt="">agentfdr</a>
+    <div class="spacer"></div>
+    <a class="nl" href="https://github.com/kamihork/agentfdr">GitHub</a>
+    <a class="nl" href="https://www.npmjs.com/package/agentfdr">npm</a>
+    <button id="lang" aria-label="Language">日本語</button>
+  </nav>
+
+  <header class="hero">
+    <img class="mark" src="assets/logo.svg" alt="agentfdr logo">
+    <h1 data-i18n="h1">The <em>black box</em> for your coding agent.</h1>
+    <p class="sub" data-i18n="sub">When Claude Code loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact.</p>
+    <div class="install mono"><span class="dollar">$</span><span id="cmd">npx agentfdr</span><button id="copy" data-i18n="copy">Copy</button></div>
+    <div class="ctas">
+      <a class="btn primary" href="https://github.com/kamihork/agentfdr" data-i18n="ctaGh">View on GitHub</a>
+      <a class="btn ghost" href="https://github.com/kamihork/agentfdr/blob/main/README.ja.md" id="ctaDocs" data-i18n="ctaDocs">README</a>
+    </div>
+    <p class="zeroes" data-i18n="zeroes"><b>Zero instrumentation</b> · <b>zero cloud</b> · <b>zero config</b> — it reads the transcripts Claude Code already writes.</p>
+    <div class="shot">
+      <picture>
+        <source media="(prefers-color-scheme: light)" srcset="assets/screenshot-light.png">
+        <img src="assets/screenshot-dark.png" alt="agentfdr timeline of a real 200-turn session with anomaly flags and the turn dissection panel" data-i18n-alt="shotAlt">
+      </picture>
+    </div>
+  </header>
+
+  <section>
+    <h2 class="sec" data-i18n="whyH">The evidence is gone by the time you notice.</h2>
+    <p class="seclead" data-i18n="whyLead">Autonomous agent failures are hard to debug — unless someone kept the flight recording.</p>
+    <div class="whygrid">
+      <div class="why"><div class="t"><span>🔁</span><span data-i18n="w1t">The loop</span></div><p data-i18n="w1">Edit → test fails → same edit, for 40 minutes.</p></div>
+      <div class="why"><div class="t"><span>🧭</span><span data-i18n="w2t">The drift</span></div><p data-i18n="w2">You asked for a bugfix; it refactored the router.</p></div>
+      <div class="why"><div class="t"><span>🔥</span><span data-i18n="w3t">The burn</span></div><p data-i18n="w3">A huge tool result crowds the context, cache stops hitting, every turn re-reads 200k tokens.</p></div>
+      <div class="why"><div class="t"><span>🛬</span><span data-i18n="w4t">The bad landing</span></div><p data-i18n="w4">“Done!” with failing tests — or no stop at all.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec" data-i18n="featH">The crash investigator's toolkit.</h2>
+    <div class="featgrid">
+      <div class="feat"><div class="ico">🛫</div><div class="t" data-i18n="f1t">Timeline viewer</div><p data-i18n="f1">The whole session on one screen: every turn's tool calls, context-window composition, and output tokens, with prompt and compaction markers.</p></div>
+      <div class="feat"><div class="ico">🚨</div><div class="t" data-i18n="f2t">Anomaly detection</div><p data-i18n="f2">Tool loops, error streaks, context bloat, token spikes, cache thrash, file churn, and refusals — flagged automatically, one click from the evidence.</p></div>
+      <div class="feat"><div class="ico">🔍</div><div class="t" data-i18n="f3t">Turn dissection</div><p data-i18n="f3">A resizable side panel with the usage breakdown and every tool call's duration, result size, and snippet. Step through turns with ←/→.</p></div>
+      <div class="feat"><div class="ico">📡</div><div class="t" data-i18n="f4t">Live watch mode</div><p data-i18n="f4">agentfdr watch follows a session that's still running — watch the context climb in real time.</p></div>
+      <div class="feat"><div class="ico">🚦</div><div class="t" data-i18n="f5t">CI gate</div><p data-i18n="f5">agentfdr assert --no-loops --max-tokens 2M exits 1 on violation. Put a tripwire on your autonomous pipelines.</p></div>
+      <div class="feat"><div class="ico">📋</div><div class="t" data-i18n="f6t">Markdown autopsy</div><p data-i18n="f6">agentfdr blame renders the whole analysis as markdown, ready to paste into an issue or a Slack thread.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec" data-i18n="usageH">Know what your plan is really burning.</h2>
+    <div class="usage">
+      <div class="txt">
+        <p data-i18n="u1">agentfdr usage aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour window, daily history, and the rolling week — with a per-model breakdown and estimated cost.</p>
+        <p data-i18n="u2">Your plan tier is auto-detected. Set budgets, calibrate them once against Claude Code's /usage screen, and get warning bars before you hit the wall.</p>
+      </div>
+      <img src="assets/screenshot-usage-dark.png" alt="plan usage panel" data-i18n-alt="usageAlt">
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec" data-i18n="cmdH">One command away.</h2>
+    <div class="cmds"><pre>
+<span class="k">agentfdr</span>                    <span class="c" data-i18n="c1"># open the newest session's timeline</span>
+<span class="k">agentfdr</span> list               <span class="c" data-i18n="c2"># all recorded sessions across projects</span>
+<span class="k">agentfdr</span> watch              <span class="c" data-i18n="c3"># live: follow the running session</span>
+<span class="k">agentfdr</span> blame 35cb18       <span class="c" data-i18n="c4"># markdown autopsy for an issue</span>
+<span class="k">agentfdr</span> usage              <span class="c" data-i18n="c5"># plan burn: 5h window / daily / weekly</span>
+<span class="k">agentfdr</span> assert --no-loops --max-tokens 2M   <span class="c" data-i18n="c6"># CI gate</span></pre></div>
+  </section>
+
+  <footer>
+    <span>MIT © <a href="https://github.com/kamihork">kamihork</a></span>
+    <span class="spacer"></span>
+    <a href="https://github.com/kamihork/agentfdr">GitHub</a>
+    <a href="https://www.npmjs.com/package/agentfdr">npm</a>
+    <a href="https://github.com/kamihork/agentfdr/blob/main/README.ja.md">日本語 README</a>
+  </footer>
+</div>
+
+<script>
+'use strict';
+const I18N = {
+  en: {
+    h1raw: 'The <em>black box</em> for your coding agent.',
+    sub: 'When Claude Code loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact.',
+    copy: 'Copy', copied: '✓ Copied',
+    ctaGh: 'View on GitHub', ctaDocs: 'README',
+    zeroesraw: '<b>Zero instrumentation</b> · <b>zero cloud</b> · <b>zero config</b> — it reads the transcripts Claude Code already writes.',
+    shotAlt: 'agentfdr timeline of a real 200-turn session',
+    whyH: 'The evidence is gone by the time you notice.',
+    whyLead: 'Autonomous agent failures are hard to debug — unless someone kept the flight recording.',
+    w1t: 'The loop', w1: 'Edit → test fails → same edit, for 40 minutes.',
+    w2t: 'The drift', w2: 'You asked for a bugfix; it refactored the router.',
+    w3t: 'The burn', w3: 'A huge tool result crowds the context, cache stops hitting, every turn re-reads 200k tokens.',
+    w4t: 'The bad landing', w4: '“Done!” with failing tests — or no stop at all.',
+    featH: "The crash investigator's toolkit.",
+    f1t: 'Timeline viewer', f1: "The whole session on one screen: every turn's tool calls, context-window composition, and output tokens, with prompt and compaction markers.",
+    f2t: 'Anomaly detection', f2: 'Tool loops, error streaks, context bloat, token spikes, cache thrash, file churn, and refusals — flagged automatically, one click from the evidence.',
+    f3t: 'Turn dissection', f3: "A resizable side panel with the usage breakdown and every tool call's duration, result size, and snippet. Step through turns with ←/→.",
+    f4t: 'Live watch mode', f4: "agentfdr watch follows a session that's still running — watch the context climb in real time.",
+    f5t: 'CI gate', f5: 'agentfdr assert --no-loops --max-tokens 2M exits 1 on violation. Put a tripwire on your autonomous pipelines.',
+    f6t: 'Markdown autopsy', f6: 'agentfdr blame renders the whole analysis as markdown, ready to paste into an issue or a Slack thread.',
+    usageH: 'Know what your plan is really burning.',
+    u1: "agentfdr usage aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour window, daily history, and the rolling week — with a per-model breakdown and estimated cost.",
+    u2: "Your plan tier is auto-detected. Set budgets, calibrate them once against Claude Code's /usage screen, and get warning bars before you hit the wall.",
+    usageAlt: 'plan usage panel',
+    cmdH: 'One command away.',
+    c1: "# open the newest session's timeline", c2: '# all recorded sessions across projects',
+    c3: '# live: follow the running session', c4: '# markdown autopsy for an issue',
+    c5: '# plan burn: 5h window / daily / weekly', c6: '# CI gate',
+    langBtn: '日本語', htmlLang: 'en',
+  },
+  ja: {
+    h1raw: 'コーディングエージェントの<br><em>ブラックボックス</em>。',
+    sub: 'Claude Code がループした、ゴールから逸れた、いつの間にか200万トークン燃やしていた——agentfdr はその「なぜ」を、事後にターン単位で解剖できるようにします。',
+    copy: 'コピー', copied: '✓ コピーしました',
+    ctaGh: 'GitHub で見る', ctaDocs: '日本語 README',
+    zeroesraw: '<b>計装ゼロ</b> · <b>クラウドゼロ</b> · <b>設定ゼロ</b> — Claude Code が既に書き出している transcript を読むだけ。',
+    shotAlt: '実際の200ターンセッションの agentfdr タイムライン',
+    whyH: '気づいた時には、証拠は流れてしまっている。',
+    whyLead: '自律エージェントの故障はデバッグが難しい——飛行記録が残っていなければ。',
+    w1t: 'ループ', w1: '編集 → テスト失敗 → 同じ編集、を40分。',
+    w2t: '逸脱', w2: 'バグ修正を頼んだのに、ルーターをリファクタリングし始める。',
+    w3t: '空費', w3: '巨大なツール結果がコンテキストを圧迫。キャッシュが効かなくなり、毎ターン200kトークンを再読込。',
+    w4t: '不時着', w4: 'テストが落ちたまま「完了しました!」——あるいは、そもそも止まらない。',
+    featH: '事故調査官の道具箱。',
+    f1t: 'タイムラインビューア', f1: 'セッション全体を1画面で。各ターンのツール呼び出し・コンテキストウィンドウの構成・出力トークンを、プロンプトと compaction のマーカー付きで。',
+    f2t: '異常検知', f2: 'ツールループ、エラー連続、コンテキスト肥大、トークン急増、キャッシュスラッシング、同一ファイル連続編集、refusal を自動フラグ。証拠までワンクリック。',
+    f3t: 'ターン解剖', f3: 'リサイズ可能なサイドパネルに usage 内訳と各ツール呼び出しの所要時間・結果サイズ・スニペット。←/→ でターンを次々調査。',
+    f4t: 'ライブウォッチ', f4: 'agentfdr watch が実行中のセッションを自動追尾。コンテキストが積み上がる様子をリアルタイムで。',
+    f5t: 'CI ゲート', f5: 'agentfdr assert --no-loops --max-tokens 2M が違反時に exit 1。自律パイプラインにトリップワイヤーを。',
+    f6t: 'Markdown 解剖レポート', f6: 'agentfdr blame が分析結果を Markdown で出力。issue や Slack スレッドにそのまま貼れます。',
+    usageH: 'プランを何にどれだけ使ったか、正確に。',
+    u1: 'agentfdr usage は全プロジェクトの transcript を、サブスクリプションの計測単位と同じ形に集計します: 現在の5時間ウィンドウ、日別履歴、直近7日——モデル別内訳と推定コスト付き。',
+    u2: 'プラン種別は自動検出。予算を設定して Claude Code の /usage と一度見比べれば、上限に当たる前に警告バーが教えてくれます。',
+    usageAlt: 'プラン使用量パネル',
+    cmdH: 'コマンド1つで。',
+    c1: '# 最新セッションのタイムラインを開く', c2: '# 全プロジェクトのセッション一覧',
+    c3: '# ライブ: 実行中セッションを追尾', c4: '# issue に貼れる Markdown 解剖レポート',
+    c5: '# プラン消費: 5hウィンドウ/日別/週', c6: '# CI ゲート',
+    langBtn: 'EN', htmlLang: 'ja',
+  },
+};
+
+let lang = localStorage.getItem('agentfdr.lp.lang') || (navigator.language && navigator.language.startsWith('ja') ? 'ja' : 'en');
+
+function apply() {
+  const d = I18N[lang];
+  document.documentElement.lang = d.htmlLang;
+  for (const el of document.querySelectorAll('[data-i18n]')) {
+    const key = el.dataset.i18n;
+    if (d[key] != null) el.textContent = d[key];
+  }
+  // the two strings with intentional markup (trusted constants above)
+  document.querySelector('[data-i18n="h1"]').innerHTML = d.h1raw;
+  document.querySelector('[data-i18n="zeroes"]').innerHTML = d.zeroesraw;
+  for (const el of document.querySelectorAll('[data-i18n-alt]')) {
+    const key = el.dataset.i18nAlt;
+    if (d[key] != null) el.alt = d[key];
+  }
+  document.getElementById('lang').textContent = d.langBtn;
+}
+
+document.getElementById('lang').addEventListener('click', () => {
+  lang = lang === 'ja' ? 'en' : 'ja';
+  localStorage.setItem('agentfdr.lp.lang', lang);
+  apply();
+});
+
+document.getElementById('copy').addEventListener('click', async () => {
+  const btn = document.getElementById('copy');
+  try {
+    await navigator.clipboard.writeText('npx agentfdr');
+    btn.textContent = I18N[lang].copied;
+  } catch {
+    btn.textContent = '✗';
+  }
+  setTimeout(() => { btn.textContent = I18N[lang].copy; }, 1500);
+});
+
+apply();
+</script>
+</body>
+</html>
