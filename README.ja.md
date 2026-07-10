@@ -94,12 +94,10 @@ transcript にはあなたのコード・プロンプト・ファイルパスが
 - [ ] サブエージェント/サイドチェーンのツリー表示
 - [ ] 検知ルールのプラグイン化(YAML)
 
-事業構想の全体は [docs/事業案.md](docs/事業案.md) を参照。
-
 ## 開発
 
 ```
-git clone <repo> && cd agentfdr
+git clone https://github.com/kamihork/agentfdr.git && cd agentfdr
 node --test test/        # テスト実行
 node bin/agentfdr.js     # ソースから CLI を実行
 ```

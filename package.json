@@ -30,6 +30,14 @@
     "tokens",
     "coding-agent"
   ],
-  "author": "",
+  "author": "kamihork <kmihoken@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kamihork/agentfdr.git"
+  },
+  "homepage": "https://github.com/kamihork/agentfdr#readme",
+  "bugs": {
+    "url": "https://github.com/kamihork/agentfdr/issues"
+  },
   "license": "Apache-2.0"
 }

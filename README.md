@@ -94,12 +94,10 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 - [ ] Subagent/sidechain tree rendering
 - [ ] Pluggable detector rules (YAML)
 
-The longer-term plan (in Japanese): [docs/事業案.md](docs/事業案.md).
-
 ## Development
 
 ```
-git clone <repo> && cd agentfdr
+git clone https://github.com/kamihork/agentfdr.git && cd agentfdr
 node --test test/        # run tests
 node bin/agentfdr.js     # run the CLI from source
 ```
