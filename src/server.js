@@ -25,7 +25,11 @@ const parseCache = new Map(); // file -> { mtimeMs, size, model, flags, cost }
 function loadSession(file) {
   const st = statSync(file);
   const hit = parseCache.get(file);
-  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit;
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+    parseCache.delete(file); // refresh LRU position on hit too
+    parseCache.set(file, hit);
+    return hit;
+  }
   const model = parseSessionFile(file);
   const flags = detect(model);
   const cost = estimateSessionCost(model);
@@ -34,6 +38,25 @@ function loadSession(file) {
   parseCache.set(file, entry);
   if (parseCache.size > CACHE_MAX) parseCache.delete(parseCache.keys().next().value);
   return entry;
+}
+
+// Usage aggregation touches EVERY session across all projects — routing that
+// through the 20-entry parseCache would churn it completely and re-parse the
+// world on each call. Keep a separate uncapped cache of just the tiny slice
+// usage needs (per-turn timestamp/model/usage): a few KB per session.
+const usageCache = new Map(); // file -> { mtimeMs, size, lite }
+
+function loadForUsage(file) {
+  const st = statSync(file);
+  const hit = usageCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.lite;
+  const model = parseSessionFile(file);
+  const lite = {
+    session: { model: model.session.model },
+    turns: model.turns.map((t) => ({ timestamp: t.timestamp, model: t.model, usage: t.usage })),
+  };
+  usageCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, lite });
+  return lite;
 }
 
 export function startServer({ port = 4477, initialSession = null, live = false } = {}) {
@@ -91,27 +114,28 @@ export function startServer({ port = 4477, initialSession = null, live = false }
     if (url.pathname === '/api/session') {
       const ref = url.searchParams.get('id');
       const { file } = resolveSession(ref || undefined);
-      // Cheap freshness probe for live mode: if the transcript hasn't changed
-      // since `since`, skip parsing and serialization entirely.
+      // Cheap freshness probe for live mode. Compare BOTH mtime and size —
+      // coarse-mtime filesystems can absorb an append into the same timestamp,
+      // and an mtime-only probe would then hide the session's final turns.
       const since = url.searchParams.get('since');
+      const sz = url.searchParams.get('sz');
       const st = statSync(file);
-      if (since && Number(since) === st.mtimeMs) {
+      if (since && Number(since) === st.mtimeMs && sz != null && Number(sz) === st.size) {
         sendJson(res, 200, { unchanged: true, mtimeMs: st.mtimeMs });
         return;
       }
-      const { model, flags, cost, mtimeMs } = loadSession(file);
+      const { model, flags, cost, mtimeMs, size } = loadSession(file);
       // Strip full tool inputs from the wire; the UI shows summaries + snippets.
       const turns = model.turns.map((t) => ({
         ...t,
         toolCalls: t.toolCalls.map(({ input, ...call }) => call),
       }));
-      sendJson(res, 200, { ...model, turns, flags, cost, mtimeMs });
+      sendJson(res, 200, { ...model, turns, flags, cost, mtimeMs, sizeBytes: size });
       return;
     }
     if (url.pathname === '/api/usage') {
       const days = Math.min(60, Math.max(1, Number(url.searchParams.get('days')) || 14));
-      // Reuse the mtime-keyed parse cache — repeated opens are cheap.
-      const usage = collectUsage({ days, loadModel: (file) => loadSession(file).model });
+      const usage = collectUsage({ days, loadModel: loadForUsage });
       usage.budgets = {
         fiveHour: parseTokenCount(process.env.AGENTFDR_BUDGET_5H) ?? null,
         week: parseTokenCount(process.env.AGENTFDR_BUDGET_WEEK) ?? null,

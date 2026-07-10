@@ -88,6 +88,26 @@ test('per-model totals aggregate across turns', () => {
   assert.equal(haiku.billed, 3000);
 });
 
+test('unknown models are reported and excluded from cost, not silently $0', () => {
+  const root = fakeRoot([
+    assistantLine(NOW - 2 * H, { model: 'claude-opus-4-8' }),
+    assistantLine(NOW - 1 * H, { model: 'totally-new-model' }),
+  ]);
+  const u = collectUsage({ now: NOW, root });
+  assert.deepEqual(u.unknownModels, ['totally-new-model']);
+  const unknown = u.models.find((m) => m.model === 'totally-new-model');
+  assert.equal(unknown.unpriced, true);
+  assert.equal(unknown.usd, 0);
+  assert.ok(u.week.usd > 0); // priced model still contributes
+});
+
+test('daily bucket keys are unique consecutive local dates', () => {
+  const root = fakeRoot([assistantLine(NOW - 1 * H)]);
+  const u = collectUsage({ now: NOW, days: 30, root });
+  assert.equal(u.days.length, 30);
+  assert.equal(new Set(u.days.map((d) => d.date)).size, 30);
+});
+
 test('budgetPct and planInfo fallbacks', () => {
   assert.equal(budgetPct(500_000, 1_000_000), 50);
   assert.equal(budgetPct(500_000, null), null);

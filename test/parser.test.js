@@ -250,6 +250,31 @@ test('queued prompt later delivered as a user line is not duplicated', () => {
   assert.equal(model.prompts[0].afterTurn, 0); // jump target updated to delivery point
 });
 
+test('one compaction recorded via multiple transcript lines counts once', () => {
+  const model = parseSessionText(jsonl([
+    assistantLine(0, 'msg_A', [{ type: 'text', text: 'hi' }]),
+    // Claude Code writes a system compact_boundary AND a summary line for one compaction
+    { type: 'system', subtype: 'compact_boundary', timestamp: ts(1), sessionId: 'sess-1' },
+    { type: 'summary', summary: 'compacted context', timestamp: ts(1), sessionId: 'sess-1' },
+    assistantLine(2, 'msg_B', [{ type: 'text', text: 'yo' }]),
+    // a second, genuinely separate compaction later
+    { type: 'system', subtype: 'compact_boundary', timestamp: ts(3), sessionId: 'sess-1' },
+  ]));
+  assert.equal(model.totals.compactions, 2);
+});
+
+test('identical prompt typed hours after a queued one is a new prompt, not a merge', () => {
+  const HOURS3 = 3 * 60 * 60;
+  const model = parseSessionText(jsonl([
+    { type: 'queue-operation', operation: 'enqueue', content: 'do X', timestamp: ts(0), sessionId: 'sess-1' },
+    assistantLine(1, 'msg_A', [{ type: 'text', text: 'hi' }]),
+    { type: 'user', uuid: 'p2', timestamp: ts(HOURS3), sessionId: 'sess-1', message: { role: 'user', content: 'do X' } },
+  ]));
+  assert.equal(model.prompts.length, 2); // outside the merge window: two distinct prompts
+  assert.equal(model.prompts[0].queued, true);
+  assert.equal(model.prompts[1].queued, undefined);
+});
+
 test('resolveLang picks ja from env-style values', async () => {
   const { resolveLang } = await import('../src/i18n.js');
   assert.equal(resolveLang('ja'), 'ja');

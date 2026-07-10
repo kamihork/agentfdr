@@ -85,7 +85,7 @@ export function parseSessionText(text, file = '<memory>') {
         if (entry.aiTitle) session.title = entry.aiTitle;
         break;
       case 'summary':
-        metaEvents.push(meta('compaction', entry.timestamp, truncate(entry.summary, 200)));
+        compaction(entry.timestamp, truncate(entry.summary, 200));
         break;
       case 'mode':
         metaEvents.push(meta('mode', entry.timestamp, entry.mode));
@@ -242,7 +242,7 @@ export function parseSessionText(text, file = '<memory>') {
     if (sawToolResult) return;
 
     if (entry.isCompactSummary === true) {
-      metaEvents.push(meta('compaction', entry.timestamp, null));
+      compaction(entry.timestamp, null);
       return;
     }
 
@@ -263,10 +263,15 @@ export function parseSessionText(text, file = '<memory>') {
       }
       return;
     }
-    // A queued message can also surface later as a regular user line —
-    // upgrade the queued entry instead of listing the prompt twice.
+    // A queued message can also surface shortly after as a regular user line —
+    // upgrade the queued entry instead of listing the prompt twice. The time
+    // bound matters: queue delivery happens within the same turn, so an
+    // identical prompt typed hours later is a NEW prompt, not a delivery.
     const text = truncate(textContent, 2000);
-    const queued = prompts.find((p) => p.queued && p.text === text);
+    const queued = prompts.find(
+      (p) => p.queued && p.text === text &&
+        (msBetween(p.timestamp, entry.timestamp) ?? Infinity) < 10 * 60 * 1000
+    );
     if (queued) {
       queued.queued = false;
       queued.afterTurn = turns.length - 1; // jump target: where it actually took effect
@@ -290,7 +295,7 @@ export function parseSessionText(text, file = '<memory>') {
       return;
     }
     if (entry.isCompactSummary === true || entry.subtype === 'compact_boundary') {
-      metaEvents.push(meta('compaction', entry.timestamp, entry.subtype ?? null));
+      compaction(entry.timestamp, entry.subtype ?? null);
       return;
     }
     metaEvents.push(meta(`system:${entry.subtype ?? '?'}`, entry.timestamp, truncate(extractText(entry.content), 200) || null));
@@ -298,6 +303,18 @@ export function parseSessionText(text, file = '<memory>') {
 
   function meta(kind, timestamp, info) {
     return { kind, timestamp: timestamp ?? null, info: info ?? null, afterTurn: turns.length - 1 };
+  }
+
+  // One compaction produces several transcript lines (a system compact_boundary
+  // marker plus an accompanying summary entry). Collapse compaction events that
+  // land at the same timeline position so counts and markers aren't duplicated.
+  function compaction(timestamp, info) {
+    const last = metaEvents.findLast((m) => m.kind === 'compaction');
+    if (last && last.afterTurn === turns.length - 1) {
+      if (info && !last.info) last.info = info;
+      return;
+    }
+    metaEvents.push(meta('compaction', timestamp, info));
   }
 }
 

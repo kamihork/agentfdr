@@ -349,6 +349,7 @@ const I18N = {
       b5: '5h budget', bw: 'weekly budget', m: 'M tok',
       calib: 'Exact plan limits are not published — calibrate budgets against /usage in Claude Code. Billed tokens = fresh input + cache write + output.',
       byModel: 'by model', turns: (n) => `${n} turns`,
+      unknown: (m) => `Cost excludes unpriced model(s): ${m}`,
     },
     timeline: (n) => `Timeline — ${n} turns`,
     turnsTable: 'Turns',
@@ -421,6 +422,7 @@ const I18N = {
       b5: '5h予算', bw: '週予算', m: 'Mトークン',
       calib: '正確な上限は非公開のため、Claude Code の /usage と見比べて予算を設定してください。課金トークン = 新規入力+キャッシュ書込+出力。',
       byModel: 'モデル別', turns: (n) => `${n}ターン`,
+      unknown: (m) => `料金不明のモデルはコストに含まれていません: ${m}`,
     },
     timeline: (n) => `タイムライン — ${n}ターン`,
     turnsTable: 'ターン一覧',
@@ -483,6 +485,7 @@ let selectedTurn = null;
 let TL = null; // geometry of the current timeline render, for the selection overlay
 let LIVE = false;       // auto-refresh (watch mode)
 let MTIME = null;       // transcript mtime of the currently rendered model
+let SIZE = null;        // transcript size — mtime alone can miss same-granule appends
 let pollTimer = null;
 let USAGE = null;       // /api/usage payload (fetched when the tab opens)
 let TAB = localStorage.getItem('agentfdr.tab') || 'timeline';
@@ -649,15 +652,21 @@ function setLive(on) {
   if (MODEL) renderMeta();
 }
 
-/** Live-mode tick: cheap mtime probe; re-render only when the transcript grew. */
+/** Live-mode tick: cheap mtime+size probe; re-render only when the transcript grew. */
 async function poll(force = false) {
   const id = $('sessionSelect').value;
   if (!id || (document.hidden && !force)) return; // paused while the tab is hidden
   try {
-    const res = await fetch('/api/session?id=' + encodeURIComponent(id) + (MTIME ? '&since=' + MTIME : ''));
+    const probe = MTIME != null && SIZE != null ? '&since=' + MTIME + '&sz=' + SIZE : '';
+    const res = await fetch('/api/session?id=' + encodeURIComponent(id) + probe);
+    if (!res.ok) return;
     const data = await res.json();
     if (data.error || data.unchanged) return;
+    // The user may have switched sessions while this request was in flight —
+    // applying a stale payload would show session A under session B's name.
+    if ($('sessionSelect').value !== id) return;
     MTIME = data.mtimeMs ?? null;
+    SIZE = data.sizeBytes ?? null;
     const followTail = selectedTurn == null || selectedTurn === MODEL.turns.length - 1;
     MODEL = data;
     if (selectedTurn != null) {
@@ -680,7 +689,10 @@ const budgetM = (key) => {
 async function loadUsage() {
   $('usageBody').textContent = '…';
   try {
-    USAGE = await fetch('/api/usage').then((r) => r.json());
+    const res = await fetch('/api/usage');
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status);
+    USAGE = data;
   } catch (err) {
     $('usageBody').textContent = T().loadError(err.message || String(err));
     return;
@@ -763,8 +775,11 @@ function renderUsage() {
   // per-model
   const mrow = add(body, 'div', 'urow');
   add(mrow, 'span', 'ulabel', L.byModel);
-  add(mrow, 'span', '', USAGE.models.map((m) => `${m.model} ${L.turns(m.turns)} · ${kM(m.billed)} tok · ~${fmtUsd(m.usd)}`).join('  |  '));
+  add(mrow, 'span', '', USAGE.models.map((m) => `${m.model} ${L.turns(m.turns)} · ${kM(m.billed)} tok · ${m.unpriced ? '~$?' : '~' + fmtUsd(m.usd)}`).join('  |  '));
 
+  if (USAGE.unknownModels && USAGE.unknownModels.length) {
+    add(body, 'div', 'unote', L.unknown(USAGE.unknownModels.join(', ')));
+  }
   add(body, 'div', 'unote', L.calib);
 }
 
@@ -774,6 +789,7 @@ async function copyReport() {
   const btn = $('copyReport');
   try {
     const res = await fetch('/api/blame?id=' + encodeURIComponent(id) + '&lang=' + LANG);
+    if (!res.ok) throw new Error('HTTP ' + res.status); // never copy an error body as "success"
     await navigator.clipboard.writeText(await res.text());
     btn.textContent = T().copied;
   } catch {
@@ -805,9 +821,10 @@ async function load(id) {
   try {
     const res = await fetch('/api/session?id=' + encodeURIComponent(id));
     const data = await res.json();
-    if (data.error) throw new Error(data.error);
+    if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status);
     MODEL = data;
     MTIME = data.mtimeMs ?? null;
+    SIZE = data.sizeBytes ?? null;
   } catch (err) {
     const bar = $('errbar');
     bar.textContent = T().loadError(err.message || String(err));

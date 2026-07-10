@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { listProjects } from './discover.js';
 import { parseSessionFile } from './parser.js';
-import { priceFor } from './cost.js';
+import { priceFor, costForUsage } from './cost.js';
 
 const WINDOW_MS = 5 * 60 * 60 * 1000; // Claude's session window
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -61,6 +61,7 @@ export function collectUsage({ days = 14, now = Date.now(), loadModel = parseSes
   }
   events.sort((a, b) => a.ts - b.ts);
 
+  const unknownModels = new Set();
   const emptyBucket = () => ({
     billed: 0,
     usd: 0,
@@ -68,17 +69,31 @@ export function collectUsage({ days = 14, now = Date.now(), loadModel = parseSes
   });
   const accumulate = (b, e) => {
     b.billed += billedOf(e.usage);
-    b.usd += usdOf(e.model, e.usage);
+    const usd = costForUsage(e.model, e.usage);
+    if (usd == null) {
+      // Only worth flagging when tokens were actually consumed — zero-usage
+      // pseudo-models (e.g. Claude Code's "<synthetic>") are noise.
+      if (e.model && (billedOf(e.usage) > 0 || e.usage.cacheRead > 0)) unknownModels.add(e.model);
+    } else {
+      b.usd += usd;
+    }
     for (const k of Object.keys(b.tokens)) b.tokens[k] += e.usage[k];
   };
 
-  // Daily buckets (local time), oldest first.
+  // Daily buckets (local time), oldest first. Calendar arithmetic via
+  // setDate — fixed 24h steps skip/duplicate a day across DST transitions.
   const dayKey = (ts) => {
     const d = new Date(ts);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
   const dayBuckets = new Map();
-  for (let i = days - 1; i >= 0; i--) dayBuckets.set(dayKey(now - i * DAY_MS), emptyBucket());
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  for (let i = days - 1; i >= 0; i--) {
+    const day = new Date(todayStart);
+    day.setDate(todayStart.getDate() - i);
+    dayBuckets.set(dayKey(day.getTime()), emptyBucket());
+  }
 
   const today = emptyBucket();
   const week = emptyBucket();
@@ -102,8 +117,9 @@ export function collectUsage({ days = 14, now = Date.now(), loadModel = parseSes
     week,
     windows: reconstructWindows(events, now, emptyBucket, accumulate),
     models: [...modelTotals]
-      .map(([model, b]) => ({ model, ...b }))
+      .map(([model, b]) => ({ model, ...b, unpriced: priceFor(model) == null }))
       .sort((a, b) => b.billed - a.billed),
+    unknownModels: [...unknownModels],
     plan: planInfo(),
   };
 }
@@ -131,15 +147,6 @@ function reconstructWindows(events, now, emptyBucket, accumulate) {
     last: current && now >= current.endsAt ? current : last,
     count7d,
   };
-}
-
-function usdOf(model, usage) {
-  const p = priceFor(model);
-  if (!p) return 0;
-  return (
-    (usage.input * p.in + usage.output * p.out +
-      usage.cacheRead * p.in * 0.1 + usage.cacheCreation * p.in * 1.25) / 1_000_000
-  );
 }
 
 /** Percentage against an optional budget; null when no budget configured. */

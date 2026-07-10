@@ -46,16 +46,57 @@ Usage options:
 Data source: ~/.claude/projects (override with AGENTFDR_CLAUDE_DIR)`;
 
 const VALUE_FLAGS = ['--port', '--lang', '--max-errors', '--max-turns', '--max-tokens', '--max-cost', '--days', '--budget-5h', '--budget-week'];
+const BOOL_FLAGS = ['--no-browser', '--json', '--no-loops', '--no-critical', '--help'];
+
+/**
+ * Sequential arg walk: a value flag consumes the NEXT token (or its `=` part),
+ * so positionals can never be mistaken for flag values (`assert 50 --max-turns 50`
+ * keeps the session ref "50"). Unknown flags and missing values are errors —
+ * a mistyped flag must never silently disable a CI gate.
+ */
+export function parseArgs(args) {
+  const flags = new Map(); // name -> string value, or true for booleans
+  const positional = [];
+  const errors = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a.startsWith('--')) {
+      positional.push(a);
+      continue;
+    }
+    const eq = a.indexOf('=');
+    const name = eq === -1 ? a : a.slice(0, eq);
+    if (VALUE_FLAGS.includes(name)) {
+      let v = eq !== -1 ? a.slice(eq + 1) : undefined;
+      if (v === undefined && i + 1 < args.length && !args[i + 1].startsWith('--')) v = args[++i];
+      if (v === undefined || v === '') errors.push(`${name} requires a value`);
+      else flags.set(name, v);
+    } else if (BOOL_FLAGS.includes(name)) {
+      if (eq !== -1) errors.push(`${name} does not take a value`);
+      else flags.set(name, true);
+    } else {
+      errors.push(`unknown option ${name}`);
+    }
+  }
+  return { flags, positional, errors };
+}
 
 export async function main(argv) {
-  const args = argv.slice(2);
-  const flags = new Set(args.filter((a) => a.startsWith('--')));
-  const values = new Set(VALUE_FLAGS.map((f) => flagValue(args, f)).filter(Boolean));
-  const positional = args.filter((a) => !a.startsWith('--') && !values.has(a));
+  const { flags, positional, errors } = parseArgs(argv.slice(2));
+  if (errors.length) return usageError(errors);
+  if (flags.has('--help')) {
+    console.log(HELP);
+    return;
+  }
   const cmd = positional[0] ?? 'open';
   const ref = positional[1];
-  const lang = resolveLang(flagValue(args, '--lang'));
-  const port = Number(flagValue(args, '--port') ?? 4477);
+  const lang = resolveLang(flags.get('--lang'));
+
+  const portRaw = flags.get('--port');
+  const port = portRaw == null ? 4477 : Number(portRaw);
+  if (portRaw != null && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+    return usageError([`--port must be a port number (1-65535), got "${portRaw}"`]);
+  }
   const browse = !flags.has('--no-browser');
 
   switch (cmd) {
@@ -70,11 +111,10 @@ export async function main(argv) {
     case 'stats':
       return cmdStats();
     case 'usage':
-      return cmdUsage(args, flags.has('--json'), lang);
+      return cmdUsage(flags, lang);
     case 'assert':
-      return cmdAssert(ref, args, flags.has('--json'));
+      return cmdAssert(ref, flags);
     case 'help':
-    case '--help':
     case '-h':
       console.log(HELP);
       return;
@@ -84,9 +124,11 @@ export async function main(argv) {
   }
 }
 
-function flagValue(args, name) {
-  const i = args.indexOf(name);
-  return i !== -1 ? args[i + 1] : undefined;
+/** Invalid invocation: report every problem and exit 2 (distinct from a failed gate's 1). */
+function usageError(errors) {
+  for (const e of errors) console.error(`agentfdr: ${e}`);
+  console.error('run `agentfdr help` for usage');
+  process.exitCode = 2;
 }
 
 function cmdList(asJson, lang) {
@@ -134,19 +176,32 @@ function cmdBlame(ref, asJson, lang) {
   console.log(blameReport(model, flags, lang));
 }
 
-function cmdAssert(ref, args, asJson) {
+function cmdAssert(ref, flags) {
+  // A limit that was given but doesn't parse must be a hard error, never a
+  // silently-skipped check — a CI gate that can't read its limit must not pass.
+  const errors = [];
+  const strict = (name, parse) => {
+    const raw = flags.get(name);
+    if (raw == null) return null;
+    const v = parse(raw);
+    if (v == null) errors.push(`${name}: cannot parse "${raw}"`);
+    return v;
+  };
+  const opts = {
+    noLoops: flags.has('--no-loops'),
+    noCritical: flags.has('--no-critical'),
+    maxErrors: strict('--max-errors', numOrNull),
+    maxTurns: strict('--max-turns', numOrNull),
+    maxTokens: strict('--max-tokens', parseTokenCount),
+    maxCost: strict('--max-cost', numOrNull),
+  };
+  if (errors.length) return usageError(errors);
+
   const { file, id } = resolveSession(ref);
   const model = parseSessionFile(file);
-  const flags = detect(model);
-  const opts = {
-    noLoops: args.includes('--no-loops'),
-    noCritical: args.includes('--no-critical'),
-    maxErrors: numOrNull(flagValue(args, '--max-errors')),
-    maxTurns: numOrNull(flagValue(args, '--max-turns')),
-    maxTokens: parseTokenCount(flagValue(args, '--max-tokens')),
-    maxCost: numOrNull(flagValue(args, '--max-cost')),
-  };
-  const result = runAsserts(model, flags, opts);
+  const detected = detect(model);
+  const result = runAsserts(model, detected, opts);
+  const asJson = flags.has('--json');
 
   if (asJson) {
     console.log(JSON.stringify({ session: id, ok: result.ok, checks: result.checks }, null, 2));
@@ -172,14 +227,23 @@ function numOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-function cmdUsage(args, asJson, lang) {
+function cmdUsage(flags, lang) {
   const s = t(lang);
-  const days = numOrNull(flagValue(args, '--days')) ?? 14;
-  const b5 = parseTokenCount(flagValue(args, '--budget-5h') ?? process.env.AGENTFDR_BUDGET_5H);
-  const bw = parseTokenCount(flagValue(args, '--budget-week') ?? process.env.AGENTFDR_BUDGET_WEEK);
+  const errors = [];
+  const strict = (name, parse, fallback) => {
+    const raw = flags.get(name) ?? fallback;
+    if (raw == null) return null;
+    const v = parse(raw);
+    if (v == null) errors.push(`${name}: cannot parse "${raw}"`);
+    return v;
+  };
+  const days = strict('--days', numOrNull) ?? 14;
+  const b5 = strict('--budget-5h', parseTokenCount, process.env.AGENTFDR_BUDGET_5H);
+  const bw = strict('--budget-week', parseTokenCount, process.env.AGENTFDR_BUDGET_WEEK);
+  if (errors.length) return usageError(errors);
   const u = collectUsage({ days: Math.min(60, Math.max(1, days)) });
 
-  if (asJson) {
+  if (flags.has('--json')) {
     console.log(JSON.stringify({ ...u, budgets: { fiveHour: b5, week: bw } }, null, 2));
     return;
   }
@@ -213,8 +277,9 @@ function cmdUsage(args, asJson, lang) {
 
   console.log(`\n${s.perModel}`);
   for (const m of u.models) {
-    console.log(`  ${m.model}  ${s.turnsN(m.turns)}  ${kM(m.billed)} tok  ~${fmtUsd(m.usd)}`);
+    console.log(`  ${m.model}  ${s.turnsN(m.turns)}  ${kM(m.billed)} tok  ${m.unpriced ? '~$?' : '~' + fmtUsd(m.usd)}`);
   }
+  if (u.unknownModels.length) console.log(`\n${s.unknownModels(u.unknownModels.join(', '))}`);
   console.log(`\n${s.usageNote}`);
 }
 
