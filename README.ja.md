@@ -1,5 +1,7 @@
 # agentfdr
 
+[![test](https://github.com/kamihork/agentfdr/actions/workflows/test.yml/badge.svg)](https://github.com/kamihork/agentfdr/actions/workflows/test.yml)
+
 **ローカルコーディングエージェントのためのフライトデータレコーダー。**
 Claude Code がループした、ゴールから逸れた、いつの間にか200万トークン燃やしていた——`agentfdr` はその「なぜ」を、事後にターン単位で解剖できるようにします。
 

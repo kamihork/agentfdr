@@ -1,5 +1,7 @@
 # agentfdr
 
+[![test](https://github.com/kamihork/agentfdr/actions/workflows/test.yml/badge.svg)](https://github.com/kamihork/agentfdr/actions/workflows/test.yml)
+
 **Flight data recorder for local coding agents.**
 When Claude Code loops, drifts off-goal, or quietly burns two million tokens, `agentfdr` shows you *why* — turn by turn, after the fact.
 
