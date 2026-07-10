@@ -13,6 +13,7 @@ import { estimateSessionCost } from './cost.js';
 import { blameReport } from './report.js';
 import { collectUsage } from './usage.js';
 import { parseTokenCount } from './assert.js';
+import { diffSessions } from './diff.js';
 
 const UI_PATH = join(dirname(fileURLToPath(import.meta.url)), 'ui.html');
 
@@ -141,6 +142,20 @@ export function startServer({ port = 4477, initialSession = null, live = false }
         week: parseTokenCount(process.env.AGENTFDR_BUDGET_WEEK) ?? null,
       };
       sendJson(res, 200, usage);
+      return;
+    }
+    if (url.pathname === '/api/diff') {
+      const refA = url.searchParams.get('a');
+      const refB = url.searchParams.get('b');
+      if (!refA || !refB) {
+        sendJson(res, 400, { error: 'diff needs ?a=<session>&b=<session>' });
+        return;
+      }
+      const load = (ref) => {
+        const { model, flags } = loadSession(resolveSession(ref).file);
+        return { model, flags };
+      };
+      sendJson(res, 200, diffSessions(load(refA), load(refB)));
       return;
     }
     if (url.pathname === '/api/blame') {

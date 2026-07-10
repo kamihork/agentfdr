@@ -208,10 +208,14 @@
     border: 1px solid var(--border); border-radius: 999px; padding: 0 7px;
   }
 
-  #usageBody .urow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12.5px; margin: 3px 0; }
-  #usageBody .ulabel { min-width: 190px; color: var(--text-secondary); }
-  #usageBody .uval { font-weight: 600; font-variant-numeric: tabular-nums; }
-  #usageBody .upct { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .urow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12.5px; margin: 3px 0; }
+  .ulabel { min-width: 190px; color: var(--text-secondary); }
+  .uval { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .upct { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  #diffBody h3 { font-size: 12px; color: var(--text-muted); font-weight: 600; margin: 14px 0 4px; letter-spacing: 0.04em; }
+  #diffBody td.better { color: var(--tool-write); font-weight: 600; }
+  #diffBody td.worse { color: var(--status-critical); font-weight: 600; }
+  #diffBody .fpath { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text-secondary); }
   .ubar { flex: 1; min-width: 100px; max-width: 260px; height: 8px; border-radius: 4px; background: var(--wash); overflow: hidden; }
   .ubar > div { height: 100%; border-radius: 4px; background: var(--ctx-2); }
   .ubar.hot > div { background: var(--status-warning); }
@@ -290,6 +294,7 @@
       <button data-tab="table" role="tab"></button>
       <button data-tab="prompts" role="tab"></button>
       <button data-tab="usage" role="tab"></button>
+      <button data-tab="diff" role="tab"></button>
     </nav>
 
     <div class="card" id="timelineCard" data-panel="timeline">
@@ -311,6 +316,15 @@
     <div class="card hidden" id="usageCard" data-panel="usage">
       <h2 id="usageTitle"></h2>
       <div id="usageBody"></div>
+    </div>
+
+    <div class="card hidden" id="diffCard" data-panel="diff">
+      <h2 id="diffTitle"></h2>
+      <div class="urow" style="margin-bottom:8px">
+        <span id="diffPickLabel" class="ulabel" style="min-width:auto"></span>
+        <select id="diffSelect" style="max-width:480px"></select>
+      </div>
+      <div id="diffBody"></div>
     </div>
   </div>
 
@@ -341,6 +355,17 @@ const I18N = {
     legendHint: '(click to filter)',
     effortBit: (v) => `effort ${v}`,
     tabTimeline: 'Timeline',
+    tabDiff: 'Compare',
+    diffTitle: 'Session comparison — A is the current session',
+    d: {
+      pick: 'Compare with (B):', choose: '— choose a session —',
+      metric: 'metric', turns: 'turns', prompts: 'prompts', calls: 'tool calls', errors: 'tool errors',
+      wall: 'wall time', out: 'output tokens', billed: 'billed tokens', peak: 'context peak',
+      cost: 'est. cost', anomalies: 'anomalies', critical: 'critical',
+      flagsH: 'ANOMALIES BY TYPE', toolsH: 'TOOL CALLS BY TOOL', filesH: 'EDITED FILES',
+      both: 'edited in both', onlyA: 'only in A', onlyB: 'only in B', more: (n) => `… +${n} more`,
+      loadError: (m) => `Failed to load diff: ${m}`,
+    },
     usageView: 'Usage',
     usageTitle: 'Plan usage — all projects',
     u: {
@@ -414,6 +439,17 @@ const I18N = {
     legendHint: '(クリックで絞り込み)',
     effortBit: (v) => `effort ${v}`,
     tabTimeline: 'タイムライン',
+    tabDiff: '比較',
+    diffTitle: 'セッション比較 — A は表示中のセッション',
+    d: {
+      pick: '比較先 (B):', choose: '— セッションを選択 —',
+      metric: '項目', turns: 'ターン数', prompts: 'プロンプト数', calls: 'ツール呼び出し', errors: 'ツールエラー',
+      wall: '実時間', out: '出力トークン', billed: '課金トークン', peak: 'コンテキスト最大',
+      cost: '推定コスト', anomalies: '異常検知', critical: '重大',
+      flagsH: '異常タイプ別', toolsH: 'ツール別呼び出し数', filesH: '編集ファイル',
+      both: '両方で編集', onlyA: 'A のみ', onlyB: 'B のみ', more: (n) => `… ほか${n}件`,
+      loadError: (m) => `比較の読み込みに失敗しました: ${m}`,
+    },
     usageView: '使用量',
     usageTitle: 'プラン使用量 — 全プロジェクト',
     u: {
@@ -488,6 +524,8 @@ let MTIME = null;       // transcript mtime of the currently rendered model
 let SIZE = null;        // transcript size — mtime alone can miss same-granule appends
 let pollTimer = null;
 let USAGE = null;       // /api/usage payload (fetched when the tab opens)
+let DIFF = null;        // /api/diff payload for the current A/B pair
+let SESSIONLIST = [];   // flat session list for the compare picker
 let TAB = localStorage.getItem('agentfdr.tab') || 'timeline';
 const TOOLFILTER = new Set(); // legend filter: empty = show all tool groups
 
@@ -536,6 +574,7 @@ function switchTab(name) {
     panel.classList.toggle('hidden', panel.dataset.panel !== name);
   }
   if (name === 'usage') loadUsage(); // refresh on every open — it's cheap (server caches)
+  if (name === 'diff') renderDiffPicker();
 }
 
 const $ = (id) => document.getElementById(id);
@@ -581,7 +620,7 @@ async function init() {
     document.documentElement.dataset.theme = qp.get('theme');
   }
   if (qp.get('uilang') === 'en' || qp.get('uilang') === 'ja') LANG = qp.get('uilang');
-  if (['timeline', 'table', 'prompts', 'usage'].includes(qp.get('tab'))) TAB = qp.get('tab');
+  if (['timeline', 'table', 'prompts', 'usage', 'diff'].includes(qp.get('tab'))) TAB = qp.get('tab');
 
   $('themeToggle').addEventListener('click', () => {
     const root = document.documentElement;
@@ -597,6 +636,7 @@ async function init() {
     applyChrome();
     if (MODEL) render();
     if (USAGE) renderUsage();
+    if (DIFF) renderDiff();
   });
   for (const btn of document.querySelectorAll('#tabs button')) {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -638,10 +678,12 @@ async function init() {
       opt.value = s.id;
       opt.textContent = (s.title || s.id.slice(0, 8)) + ' — ' + new Date(s.mtimeMs).toLocaleString();
       og.appendChild(opt);
+      SESSIONLIST.push({ id: s.id, title: s.title, mtimeMs: s.mtimeMs });
     }
     sel.appendChild(og);
   }
   sel.addEventListener('change', () => load(sel.value));
+  $('diffSelect').addEventListener('change', loadDiff);
 
   if (!projects.length) { $('empty').classList.remove('hidden'); return; }
   const want = location.hash.slice(1);
@@ -799,6 +841,119 @@ function renderUsage() {
   add(body, 'div', 'unote', L.calib);
 }
 
+// ---------- session comparison (failed attempt vs successful retry) ----------
+function renderDiffPicker() {
+  const sel = $('diffSelect');
+  const current = $('sessionSelect').value;
+  const prev = sel.value;
+  sel.textContent = '';
+  const ph = document.createElement('option');
+  ph.value = '';
+  ph.textContent = T().d.choose;
+  sel.appendChild(ph);
+  for (const s of SESSIONLIST) {
+    if (s.id === current) continue;
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = (s.title || s.id.slice(0, 8)) + ' — ' + new Date(s.mtimeMs).toLocaleString();
+    sel.appendChild(opt);
+  }
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  if (sel.value) loadDiff();
+  else if (DIFF) renderDiff();
+  else $('diffBody').textContent = '';
+}
+
+async function loadDiff() {
+  const a = $('sessionSelect').value;
+  const b = $('diffSelect').value;
+  if (!a || !b) return;
+  $('diffBody').textContent = '…';
+  try {
+    const res = await fetch('/api/diff?a=' + encodeURIComponent(a) + '&b=' + encodeURIComponent(b));
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status);
+    DIFF = data;
+  } catch (err) {
+    $('diffBody').textContent = T().d.loadError(err.message || String(err));
+    return;
+  }
+  renderDiff();
+}
+
+function renderDiff() {
+  const L = T().d;
+  const body = $('diffBody');
+  body.textContent = '';
+  if (!DIFF) return;
+  const name = (s) => s.title || (s.id ?? '?').slice(0, 8);
+  add(body, 'div', 'upct', 'A: ' + name(DIFF.a) + '    |    B: ' + name(DIFF.b));
+
+  const mkTable = (head) => {
+    const table = document.createElement('table');
+    const thr = document.createElement('tr');
+    head.forEach((h, i) => {
+      const th = document.createElement('th');
+      if (i > 0) th.className = 'num';
+      th.textContent = h;
+      thr.appendChild(th);
+    });
+    table.appendChild(thr);
+    return table;
+  };
+  // judge: for lower-is-better metrics, color B green when it improved on A
+  const row3 = (table, label, aVal, bVal, fmt, judge) => {
+    const tr = document.createElement('tr');
+    add(tr, 'td', '', label);
+    const tdA = add(tr, 'td', 'num', fmt(aVal));
+    const tdB = add(tr, 'td', 'num', fmt(bVal));
+    if (judge && aVal != null && bVal != null && aVal !== bVal) {
+      tdB.classList.add(bVal < aVal ? 'better' : 'worse');
+    }
+    table.appendChild(tr);
+    return tr;
+  };
+  const S = String;
+  const usd = (v) => (v == null ? '?' : '~' + fmtUsd(v));
+
+  const stats = mkTable([L.metric, 'A', 'B']);
+  const A = DIFF.a.stats, B = DIFF.b.stats;
+  row3(stats, L.turns, A.turns, B.turns, S, false);
+  row3(stats, L.prompts, A.prompts, B.prompts, S, false);
+  row3(stats, L.calls, A.toolCalls, B.toolCalls, S, false);
+  row3(stats, L.errors, A.toolErrors, B.toolErrors, S, true);
+  row3(stats, L.wall, A.wallMs, B.wallMs, fmtMs, true);
+  row3(stats, L.out, A.outputTokens, B.outputTokens, kTok, false);
+  row3(stats, L.billed, A.billedTokens, B.billedTokens, kTok, true);
+  row3(stats, L.peak, A.contextPeak, B.contextPeak, kTok, false);
+  row3(stats, L.cost, A.estUsd, B.estUsd, usd, true);
+  row3(stats, L.anomalies, A.anomalies, B.anomalies, S, true);
+  row3(stats, L.critical, A.critical, B.critical, S, true);
+  body.appendChild(stats);
+
+  if (DIFF.flags.length) {
+    add(body, 'h3', '', L.flagsH);
+    const ft = mkTable(['', 'A', 'B']);
+    for (const f of DIFF.flags) row3(ft, f.type, f.a, f.b, S, true);
+    body.appendChild(ft);
+  }
+
+  add(body, 'h3', '', L.toolsH);
+  const tt = mkTable(['', 'A', 'B']);
+  for (const tl of DIFF.tools) row3(tt, tl.name, tl.a, tl.b, S, false);
+  body.appendChild(tt);
+
+  const fileBlock = (label, arr, extra) => {
+    if (!arr.length) return;
+    add(body, 'h3', '', L.filesH + ' — ' + label);
+    for (const f of arr) add(body, 'div', 'fpath', f);
+    if (extra) add(body, 'div', 'upct', L.more(extra));
+  };
+  fileBlock(L.both, DIFF.files.both, DIFF.files.truncated.both);
+  fileBlock(L.onlyA, DIFF.files.onlyA, DIFF.files.truncated.onlyA);
+  fileBlock(L.onlyB, DIFF.files.onlyB, DIFF.files.truncated.onlyB);
+}
+
 async function copyReport() {
   const id = $('sessionSelect').value;
   if (!id) return;
@@ -818,10 +973,12 @@ async function copyReport() {
 function applyChrome() {
   document.documentElement.lang = LANG;
   document.querySelector('[data-i18n="subtitle"]').textContent = T().subtitle;
-  const tabLabels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView };
+  const tabLabels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff };
   for (const btn of document.querySelectorAll('#tabs button')) {
     btn.textContent = tabLabels[btn.dataset.tab];
   }
+  $('diffTitle').textContent = T().diffTitle;
+  $('diffPickLabel').textContent = T().d.pick;
   $('copyReport').textContent = T().copyReport;
   $('liveToggle').textContent = T().live;
   $('liveToggle').title = T().liveTitle;
@@ -848,7 +1005,9 @@ async function load(id) {
     return;
   }
   selectedTurn = null;
+  DIFF = null; // A changed — any previous comparison is stale
   render();
+  if (TAB === 'diff') renderDiffPicker();
 }
 
 // ---------- render ----------
@@ -868,7 +1027,7 @@ function render() {
 /** Tab labels get lightweight counts so you know what's behind them. */
 function updateTabCounts() {
   const counts = { table: MODEL.turns.length, prompts: MODEL.prompts.length };
-  const labels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView };
+  const labels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff };
   for (const btn of document.querySelectorAll('#tabs button')) {
     btn.textContent = labels[btn.dataset.tab];
     const c = counts[btn.dataset.tab];

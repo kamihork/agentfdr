@@ -7,6 +7,7 @@ import { resolveLang, t } from './i18n.js';
 import { estimateSessionCost, fmtUsd } from './cost.js';
 import { runAsserts, parseTokenCount } from './assert.js';
 import { collectUsage, budgetPct } from './usage.js';
+import { diffSessions } from './diff.js';
 
 const HELP = `agentfdr — flight data recorder for local coding agents
 
@@ -15,6 +16,7 @@ Usage:
   agentfdr open [session]       Open the timeline UI (default: newest session)
   agentfdr watch [session]      Open the timeline UI in live mode (auto-refresh)
   agentfdr blame [session]      Print a markdown autopsy of a session
+  agentfdr diff <a> <b>         Compare two sessions (failed attempt vs retry)
   agentfdr stats                Token totals + estimated cost across projects
   agentfdr usage                Plan usage: 5h window / daily / weekly burn, all projects
   agentfdr assert [session]     CI gate: exit 1 if the session violates limits
@@ -108,6 +110,8 @@ export async function main(argv) {
       return cmdOpen(ref, port, browse, true);
     case 'blame':
       return cmdBlame(ref, flags.has('--json'), lang);
+    case 'diff':
+      return cmdDiff(ref, positional[2], flags.has('--json'), lang);
     case 'stats':
       return cmdStats();
     case 'usage':
@@ -174,6 +178,59 @@ function cmdBlame(ref, asJson, lang) {
     return;
   }
   console.log(blameReport(model, flags, lang));
+}
+
+function cmdDiff(refA, refB, asJson, lang) {
+  const s = t(lang);
+  if (!refA || !refB) return usageError(['diff needs two session refs: agentfdr diff <a> <b>']);
+  const load = (ref) => {
+    const { file } = resolveSession(ref);
+    const model = parseSessionFile(file);
+    return { model, flags: detect(model) };
+  };
+  const d = diffSessions(load(refA), load(refB));
+
+  if (asJson) {
+    console.log(JSON.stringify(d, null, 2));
+    return;
+  }
+
+  const kTok = (n) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n ?? 0));
+  const label = (x, ref) => `${(x.id ?? ref).slice(0, 8)}${x.title ? `  ${x.title.slice(0, 40)}` : ''}`;
+  console.log(`A: ${label(d.a, refA)}`);
+  console.log(`B: ${label(d.b, refB)}`);
+  console.log('');
+
+  const rows = [
+    [s.turns, d.a.stats.turns, d.b.stats.turns],
+    [s.promptsLabel, d.a.stats.prompts, d.b.stats.prompts],
+    [s.toolCalls, d.a.stats.toolCalls, d.b.stats.toolCalls],
+    [s.errors, d.a.stats.toolErrors, d.b.stats.toolErrors],
+    [s.wallTime, fmtMs(d.a.stats.wallMs), fmtMs(d.b.stats.wallMs)],
+    [s.outputTokens, kTok(d.a.stats.outputTokens), kTok(d.b.stats.outputTokens)],
+    [s.billedTokens, kTok(d.a.stats.billedTokens), kTok(d.b.stats.billedTokens)],
+    [s.contextPeak, kTok(d.a.stats.contextPeak), kTok(d.b.stats.contextPeak)],
+    [s.estCost, `~${fmtUsd(d.a.stats.estUsd)}`, `~${fmtUsd(d.b.stats.estUsd)}`],
+    [s.anomalies, `${d.a.stats.anomalies} (${d.a.stats.critical} ${s.criticalShort})`, `${d.b.stats.anomalies} (${d.b.stats.critical} ${s.criticalShort})`],
+  ];
+  const w0 = Math.max(...rows.map((r) => String(r[0]).length));
+  const w1 = Math.max(...rows.map((r) => String(r[1]).length), 1);
+  for (const [k, a, b] of rows) {
+    console.log(`  ${String(k).padEnd(w0)}  ${String(a).padStart(w1)}  →  ${b}`);
+  }
+
+  if (d.flags.length) {
+    console.log(`\n${s.anomalies}:`);
+    for (const f of d.flags) console.log(`  ${f.type.padEnd(14)}  ${String(f.a).padStart(3)}  →  ${f.b}`);
+  }
+
+  console.log(`\n${s.toolsLabel}:`);
+  for (const tl of d.tools) console.log(`  ${tl.name.padEnd(14)}  ${String(tl.a).padStart(3)}  →  ${tl.b}`);
+
+  const fileList = (arr, extra) => arr.map((f) => `    ${f}`).join('\n') + (extra ? `\n    … +${extra}` : '');
+  if (d.files.both.length) console.log(`\n${s.filesBoth}:\n${fileList(d.files.both, d.files.truncated.both)}`);
+  if (d.files.onlyA.length) console.log(`\n${s.filesOnly('A')}:\n${fileList(d.files.onlyA, d.files.truncated.onlyA)}`);
+  if (d.files.onlyB.length) console.log(`\n${s.filesOnly('B')}:\n${fileList(d.files.onlyB, d.files.truncated.onlyB)}`);
 }
 
 function cmdAssert(ref, flags) {

@@ -41,6 +41,7 @@ That's the whole setup. Your sessions are already recorded — Claude Code write
 - 💸 **Cost estimation** — estimated USD per session and per model, from list prices
 - 🚦 **CI gate** — `agentfdr assert --no-loops --max-tokens 2M` exits 1 on violation
 - 📋 **Markdown autopsy** — `agentfdr blame` renders the analysis ready to paste into an issue
+- ⚖️ **Session diff** — `agentfdr diff` (and the **Compare** tab) puts a failed attempt next to the successful retry: stats, anomalies, tool mix, and which files each one touched
 - 🌗 **Dark/light**, 🌏 **English/Japanese**, in both the viewer and the CLI
 - 🔒 **Local-only** — no telemetry, no account, no runtime dependencies (Node ≥18 stdlib)
 
@@ -63,6 +64,7 @@ agentfdr list               # all recorded sessions across all projects
 agentfdr open 35cb18        # open a session by id prefix (or path to a .jsonl)
 agentfdr watch              # same, but live: the timeline follows the running session
 agentfdr blame 35cb18       # markdown autopsy — paste it into an issue
+agentfdr diff 35cb18 9af7ec # compare two sessions: failed attempt vs retry
 agentfdr stats              # token totals + estimated cost per project
 agentfdr usage              # plan usage: 5h window / daily / weekly burn
 agentfdr assert --no-loops --max-tokens 2M   # CI gate: exit 1 on violation
@@ -119,7 +121,7 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 - [x] Watch mode (`agentfdr watch`) with live timeline
 - [x] CI gate — `agentfdr assert --no-loops --max-tokens 2M`
 - [x] Cost estimation from per-model list prices
-- [ ] Session diff — compare the failed attempt with the successful retry
+- [x] Session diff — compare the failed attempt with the successful retry
 - [ ] Adapters for other agents (Codex CLI, Gemini CLI, OpenHands, Aider) behind a common event schema
 - [ ] Subagent/sidechain tree rendering
 - [ ] Pluggable detector rules (YAML)
