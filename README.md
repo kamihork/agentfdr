@@ -1,24 +1,48 @@
-# agentfdr
+<div align="center">
+  <img src="assets/logo.svg" width="140" height="140" alt="agentfdr logo — an orange flight recorder with a timeline inside">
 
-[![test](https://github.com/kamihork/agentfdr/actions/workflows/test.yml/badge.svg)](https://github.com/kamihork/agentfdr/actions/workflows/test.yml)
+  <h1>agentfdr</h1>
 
-**Flight data recorder for local coding agents.**
-When Claude Code loops, drifts off-goal, or quietly burns two million tokens, `agentfdr` shows you *why* — turn by turn, after the fact.
+  <p><strong>Flight data recorder for local coding agents.</strong><br>
+  When Claude Code loops, drifts off-goal, or quietly burns two million tokens,<br><code>agentfdr</code> shows you <em>why</em> — turn by turn, after the fact.</p>
 
-*日本語版 README は [README.ja.md](README.ja.md) へ。UI・CLI とも日本語対応です。*
+  <p>
+    <a href="https://www.npmjs.com/package/agentfdr"><img src="https://img.shields.io/npm/v/agentfdr?color=f4511e&label=npm" alt="npm version"></a>
+    <a href="https://www.npmjs.com/package/agentfdr"><img src="https://img.shields.io/npm/dt/agentfdr?color=3987e5" alt="npm downloads"></a>
+    <a href="https://github.com/kamihork/agentfdr/actions/workflows/test.yml"><img src="https://github.com/kamihork/agentfdr/actions/workflows/test.yml/badge.svg" alt="test status"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/kamihork/agentfdr?color=199e70" alt="license"></a>
+  </p>
 
-```
-npx agentfdr
-```
-
-That's the whole setup. Your sessions are already recorded — Claude Code writes a full transcript of every session to `~/.claude/projects/`. `agentfdr` reads those transcripts and turns them into something a human can investigate: a timeline of every turn's tool calls, token consumption, context growth, and stop decisions, with known failure patterns flagged automatically.
-
-**Zero instrumentation. Zero cloud. Zero config.** Nothing is sent anywhere; the viewer binds to `127.0.0.1` and reads files you already have.
+  <p>English | <a href="README.ja.md">日本語</a></p>
+</div>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.png">
-  <img alt="AgentFDR timeline: a real 200-turn session with anomaly flags, the tool/context/output lanes, and the turn dissection panel" src="assets/screenshot-light.png">
+  <img alt="agentfdr timeline: a real 200-turn session with anomaly flags, the tool/context/output lanes, and the turn dissection panel" src="assets/screenshot-light.png">
 </picture>
+
+## Quick start
+
+```sh
+npx agentfdr
+```
+
+That's the whole setup. Your sessions are already recorded — Claude Code writes a full transcript of every session to `~/.claude/projects/`. `agentfdr` reads those transcripts and turns them into something a human can investigate.
+
+**Zero instrumentation. Zero cloud. Zero config.** Nothing is sent anywhere; the viewer binds to `127.0.0.1` and reads files you already have.
+
+## Features
+
+- 🛫 **Timeline viewer** — one screen for the whole session: every turn's tool calls, context-window composition, and output tokens, with prompt and compaction markers
+- 🔍 **Turn dissection** — resizable side panel with usage breakdown, assistant text, and every tool call's duration, result size, and snippet; step with ←/→
+- 🚨 **Anomaly detection** — tool loops, error streaks, context bloat, token spikes, cache thrash, file churn, and refusals, flagged automatically
+- 📡 **Live watch mode** — `agentfdr watch` follows a session that's still running
+- 📊 **Plan usage** — 5-hour window / daily / weekly burn across all projects, plan-tier auto-detection, calibratable budgets with warning bars
+- 💸 **Cost estimation** — estimated USD per session and per model, from list prices
+- 🚦 **CI gate** — `agentfdr assert --no-loops --max-tokens 2M` exits 1 on violation
+- 📋 **Markdown autopsy** — `agentfdr blame` renders the analysis ready to paste into an issue
+- 🌗 **Dark/light**, 🌏 **English/Japanese**, in both the viewer and the CLI
+- 🔒 **Local-only** — no telemetry, no account, no runtime dependencies (Node ≥18 stdlib)
 
 ## Why
 
@@ -48,15 +72,11 @@ Options: `--port <n>` (auto-falls-back if taken), `--no-browser`, `--json`, `--l
 
 `assert` checks (any combination; exit code 1 if one fails): `--no-loops`, `--no-critical`, `--max-errors <n>`, `--max-turns <n>`, `--max-tokens <n>` (fresh input + cache write + output; accepts `500k` / `2M`), `--max-cost <usd>`.
 
-In the viewer: the **dissection panel** lives on the right (always visible on wide screens; slides in on narrow ones) — click a turn and it fills in, and the timeline stays visible so you can step through turns (**←/→**, **Esc** deselects) without losing your place. Drag the panel's left edge to resize it; the width persists. Tabs switch the main view: **Timeline / Turns / Prompts / Usage**; clicking a prompt or an anomaly chip jumps back to the timeline at that turn. Click a tool color in the legend to filter the tools lane. **Copy report** puts the blame markdown on your clipboard; **● LIVE** re-fetches while the session is still running (on automatically via `agentfdr watch`). Language (日本語/English) and theme toggles are in the header; everything persists.
+## The viewer
 
-## What you get
+The **dissection panel** lives on the right (always visible on wide screens; slides in on narrow ones) — click a turn and it fills in, and the timeline stays visible so you can step through turns (**←/→**, **Esc** deselects) without losing your place. Drag the panel's left edge to resize it; the width persists.
 
-**Timeline** — one screen for the whole session, per turn:
-- *Tools lane*: every tool call as a colored block, errors ringed in red
-- *Context lane*: stacked context-window composition (cache read / cache write / fresh input) — watch it grow, watch compaction reset it
-- *Output lane*: output tokens per turn
-- Markers for user prompts and compaction events; hover any turn for the full readout, click for the dissection: usage breakdown, assistant text, every tool call with duration, result size, and result snippet
+Tabs switch the main view: **Timeline / Turns / Prompts / Usage**; clicking a prompt or an anomaly chip jumps back to the timeline at that turn. Click a tool color in the legend to filter the tools lane. **Copy report** puts the blame markdown on your clipboard; **● LIVE** re-fetches while the session is still running (on automatically via `agentfdr watch`). Language and theme toggles are in the header; everything persists, and any view is deep-linkable (`?theme=dark&tab=usage&sel=95`).
 
 **Session readout** — the header line lists every model that produced a turn (with per-model turn counts when the session switched models), the number of fast-mode turns, and the effort level. A caveat on effort: it is not a structured field in the transcript, so it's recovered from `/effort` command output and only appears when the level was set during the session.
 
@@ -66,7 +86,9 @@ In the viewer: the **dissection panel** lives on the right (always visible on wi
 
 **Plan usage** — `agentfdr usage` (and the **Usage** panel in the viewer) aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour rolling window, per-day history, and the rolling week, plus a per-model breakdown. Your plan tier (e.g. `claude_max · default_claude_max_5x`) is read from Claude Code's local config. Anthropic doesn't publish exact token limits, so you set your own budgets (`--budget-5h` / `--budget-week`, env `AGENTFDR_BUDGET_5H` / `AGENTFDR_BUDGET_WEEK`, or inputs in the viewer) and calibrate them against Claude Code's `/usage` screen — agentfdr then shows % consumed with warning colors.
 
-**Anomaly flags** — heuristics that answer "where do I look first?":
+## Anomaly flags
+
+Heuristics that answer "where do I look first?":
 
 | Flag | Meaning |
 |---|---|
@@ -78,8 +100,6 @@ In the viewer: the **dissection panel** lives on the right (always visible on wi
 | `file-churn` | The same file edited 6+ times |
 | `refusal` | A turn ended with `stop_reason: refusal` (safety decline) |
 
-**Blame report** — `agentfdr blame` renders the same analysis as markdown, ready for an issue or a Slack thread.
-
 ## How it works
 
 Claude Code appends every event of a session — user prompts, assistant messages with full token usage, tool calls, tool results, compaction, mode changes — to a JSONL transcript under `~/.claude/projects/<project>/<session-id>.jsonl`. `agentfdr` parses that into a normalized turn model and runs the detectors over it. That's it: no daemon, no database, no runtime dependencies (Node ≥18 standard library only).
@@ -89,6 +109,7 @@ The transcript format is not a published API, so the parser is written to surviv
 ## Privacy
 
 Transcripts contain your code, your prompts, and your file paths. Therefore:
+
 - everything runs locally; the server binds to `127.0.0.1` only
 - there is no telemetry, no phone-home, no account
 - `blame` output goes to stdout — you decide what leaves the machine
@@ -105,9 +126,9 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 
 ## Development
 
-```
+```sh
 git clone https://github.com/kamihork/agentfdr.git && cd agentfdr
-node --test test/        # run tests
+npm test                 # run tests
 node bin/agentfdr.js     # run the CLI from source
 ```
 
@@ -115,6 +136,15 @@ node bin/agentfdr.js     # run the CLI from source
 
 Contributions welcome — especially adapters for other agents and new detector heuristics. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Star history
+
+<a href="https://www.star-history.com/#kamihork/agentfdr&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date&theme=dark">
+    <img alt="Star history chart" src="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date">
+  </picture>
+</a>
+
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © [kamihork](https://github.com/kamihork)

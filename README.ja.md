@@ -1,22 +1,48 @@
-# agentfdr
+<div align="center">
+  <img src="assets/logo.svg" width="140" height="140" alt="agentfdr のロゴ — タイムラインが描かれたオレンジ色のフライトレコーダー">
 
-[![test](https://github.com/kamihork/agentfdr/actions/workflows/test.yml/badge.svg)](https://github.com/kamihork/agentfdr/actions/workflows/test.yml)
+  <h1>agentfdr</h1>
 
-**ローカルコーディングエージェントのためのフライトデータレコーダー。**
-Claude Code がループした、ゴールから逸れた、いつの間にか200万トークン燃やしていた——`agentfdr` はその「なぜ」を、事後にターン単位で解剖できるようにします。
+  <p><strong>ローカルコーディングエージェントのためのフライトデータレコーダー。</strong><br>
+  Claude Code がループした、ゴールから逸れた、いつの間にか200万トークン燃やしていた——<br><code>agentfdr</code> はその「なぜ」を、事後にターン単位で解剖できるようにします。</p>
 
-```
-npx agentfdr
-```
+  <p>
+    <a href="https://www.npmjs.com/package/agentfdr"><img src="https://img.shields.io/npm/v/agentfdr?color=f4511e&label=npm" alt="npm バージョン"></a>
+    <a href="https://www.npmjs.com/package/agentfdr"><img src="https://img.shields.io/npm/dt/agentfdr?color=3987e5" alt="npm ダウンロード数"></a>
+    <a href="https://github.com/kamihork/agentfdr/actions/workflows/test.yml"><img src="https://github.com/kamihork/agentfdr/actions/workflows/test.yml/badge.svg" alt="テストステータス"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/kamihork/agentfdr?color=199e70" alt="ライセンス"></a>
+  </p>
 
-セットアップはこれだけです。セッションは既に記録されています——Claude Code はすべてのセッションの完全な transcript を `~/.claude/projects/` に書き出しており、`agentfdr` はそれを読んで人間が調査できる形に変えます: 各ターンのツール呼び出し・トークン消費・コンテキストの成長・停止判定のタイムラインに、既知の故障パターンの自動フラグ付き。
-
-**計装ゼロ。クラウドゼロ。設定ゼロ。** データはどこにも送信されません。ビューアは `127.0.0.1` にのみバインドし、手元に既にあるファイルを読むだけです。
+  <p><a href="README.md">English</a> | 日本語</p>
+</div>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.png">
-  <img alt="AgentFDR タイムライン: 実際の200ターンセッション。異常フラグ、ツール/コンテキスト/出力レーン、ターン解剖パネル" src="assets/screenshot-light.png">
+  <img alt="agentfdr タイムライン: 実際の200ターンセッション。異常フラグ、ツール/コンテキスト/出力レーン、ターン解剖パネル" src="assets/screenshot-light.png">
 </picture>
+
+## クイックスタート
+
+```sh
+npx agentfdr
+```
+
+セットアップはこれだけです。セッションは既に記録されています——Claude Code はすべてのセッションの完全な transcript を `~/.claude/projects/` に書き出しており、`agentfdr` はそれを読んで人間が調査できる形に変えます。
+
+**計装ゼロ。クラウドゼロ。設定ゼロ。** データはどこにも送信されません。ビューアは `127.0.0.1` にのみバインドし、手元に既にあるファイルを読むだけです。
+
+## 機能
+
+- 🛫 **タイムラインビューア** — セッション全体を1画面で: 各ターンのツール呼び出し・コンテキストウィンドウの構成・出力トークン、プロンプトと compaction のマーカー付き
+- 🔍 **ターン解剖** — リサイズ可能なサイドパネルに usage 内訳・アシスタントの発言・各ツール呼び出しの所要時間/結果サイズ/スニペット。←/→ で移動
+- 🚨 **異常検知** — ツールループ、エラー連続、コンテキスト肥大、トークン急増、キャッシュスラッシング、同一ファイル連続編集、refusal を自動フラグ
+- 📡 **ライブウォッチ** — `agentfdr watch` で実行中セッションを自動追尾
+- 📊 **プラン使用量** — 全プロジェクト横断の5時間ウィンドウ/日別/週間消費、プラン種別の自動検出、警告バー付きの予算キャリブレーション
+- 💸 **コスト推定** — セッション別・モデル別の推定 USD(定価ベース)
+- 🚦 **CI ゲート** — `agentfdr assert --no-loops --max-tokens 2M` が違反時に exit 1
+- 📋 **Markdown 解剖レポート** — `agentfdr blame` の出力を issue にそのまま貼れる
+- 🌗 **ダーク/ライト**、🌏 **日本語/英語**(ビューア・CLI とも)
+- 🔒 **完全ローカル** — テレメトリなし、アカウント不要、ランタイム依存なし(Node ≥18 標準ライブラリのみ)
 
 ## なぜ必要か
 
@@ -46,16 +72,11 @@ agentfdr assert --no-loops --max-tokens 2M   # CI ゲート: 違反で exit 1
 
 `assert` のチェック(自由に組み合わせ可、1つでも失敗すれば exit 1): `--no-loops`、`--no-critical`、`--max-errors <n>`、`--max-turns <n>`、`--max-tokens <n>`(新規入力+キャッシュ書込+出力。`500k` / `2M` 表記可)、`--max-cost <usd>`。
 
-ビューアの操作: 画面右に**解剖パネル**が常駐します(広い画面では常時表示、狭い画面ではスライドイン)。ターンをクリックすると内容が表示され、タイムラインが見えたまま **←/→** でターンを次々調査できます(**Esc** で選択解除)。パネルの左端をドラッグすると幅を変更でき、設定は記憶されます。メインビューはタブで切替: **タイムライン / テーブル表示 / プロンプト / 使用量**。プロンプトの行や異常チップをクリックすると、タイムラインの該当ターンへ自動でジャンプします。凡例のツール色をクリックするとツールレーンを絞り込み。**レポートをコピー** で blame の Markdown をクリップボードへ、**● LIVE** で実行中セッションを自動更新(`agentfdr watch` なら最初からオン)。ヘッダーに言語(日本語/English)とテーマの切替があり、設定は記憶されます。
+## ビューア
 
-## 何が見えるか
+画面右に**解剖パネル**が常駐します(広い画面では常時表示、狭い画面ではスライドイン)。ターンをクリックすると内容が表示され、タイムラインが見えたまま **←/→** でターンを次々調査できます(**Esc** で選択解除)。パネルの左端をドラッグすると幅を変更でき、設定は記憶されます。
 
-**タイムライン** — セッション全体を1画面で、ターンごとに:
-
-- *ツールレーン*: すべてのツール呼び出しを色分きブロックで表示、エラーは赤枠
-- *コンテキストレーン*: コンテキストウィンドウの構成(キャッシュ読取/書込/新規入力)の積み上げ——膨張と compaction によるリセットが見える
-- *出力レーン*: ターンごとの出力トークン
-- ユーザープロンプト(▼)と compaction のマーカー。任意のターンにホバーで全数値、クリックで解剖ビュー: usage 内訳、アシスタントの発言、各ツール呼び出しの所要時間・結果サイズ・結果スニペット
+メインビューはタブで切替: **タイムライン / テーブル表示 / プロンプト / 使用量**。プロンプトの行や異常チップをクリックすると、タイムラインの該当ターンへ自動でジャンプします。凡例のツール色をクリックするとツールレーンを絞り込み。**レポートをコピー** で blame の Markdown をクリップボードへ、**● LIVE** で実行中セッションを自動更新(`agentfdr watch` なら最初からオン)。言語・テーマはヘッダーで切替でき、表示状態は URL で共有できます(`?theme=dark&tab=usage&sel=95`)。
 
 **セッション情報** — ヘッダー行に、ターンを生成した全モデル(セッション途中でモデルを切り替えた場合はモデルごとのターン数付き)、fast モードのターン数、effort レベルを表示します。effort に関する注意: transcript の構造化フィールドには記録されていないため、`/effort` コマンドの出力から復元しています。セッション中に設定を変更した場合のみ表示されます。
 
@@ -65,7 +86,9 @@ agentfdr assert --no-loops --max-tokens 2M   # CI ゲート: 違反で exit 1
 
 **プラン使用量** — `agentfdr usage`(ビューアの **使用量** パネルも同じ)は、全プロジェクトの transcript を、サブスクリプションの計測単位と同じ形に集計します: 現在の5時間ローリングウィンドウ、日別履歴、直近7日、モデル別内訳。プラン種別(例: `claude_max · default_claude_max_5x`)は Claude Code のローカル設定から自動取得します。正確なトークン上限は非公開のため、予算は自分で設定し(`--budget-5h` / `--budget-week`、環境変数 `AGENTFDR_BUDGET_5H` / `AGENTFDR_BUDGET_WEEK`、またはビューアの入力欄)、Claude Code の `/usage` 画面と見比べてキャリブレーションする方式です。設定すると消費率が警告色付きのバーで表示されます。
 
-**異常フラグ** — 「まずどこを見るべきか」に答えるヒューリスティック:
+## 異常フラグ
+
+「まずどこを見るべきか」に答えるヒューリスティック:
 
 | フラグ | 意味 |
 |---|---|
@@ -76,8 +99,6 @@ agentfdr assert --no-loops --max-tokens 2M   # CI ゲート: 違反で exit 1
 | `cache-thrash` | キャッシュヒットゼロのターンが連続 |
 | `file-churn` | 同一ファイルを6回以上編集 |
 | `refusal` | `stop_reason: refusal` で終了したターン(安全機構による拒否) |
-
-**blame レポート** — `agentfdr blame --lang ja` で同じ分析を Markdown で出力。issue や Slack スレッドにどうぞ。
 
 ## 仕組み
 
@@ -105,9 +126,9 @@ transcript にはあなたのコード・プロンプト・ファイルパスが
 
 ## 開発
 
-```
+```sh
 git clone https://github.com/kamihork/agentfdr.git && cd agentfdr
-node --test test/        # テスト実行
+npm test                 # テスト実行
 node bin/agentfdr.js     # ソースから CLI を実行
 ```
 
@@ -115,6 +136,15 @@ node bin/agentfdr.js     # ソースから CLI を実行
 
 コントリビューション歓迎です。特に他エージェントのアダプタと新しい検知ヒューリスティック。[CONTRIBUTING.md](CONTRIBUTING.md) をどうぞ。
 
+## Star History
+
+<a href="https://www.star-history.com/#kamihork/agentfdr&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date&theme=dark">
+    <img alt="Star History チャート" src="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date">
+  </picture>
+</a>
+
 ## ライセンス
 
-[MIT](LICENSE)
+[MIT](LICENSE) © [kamihork](https://github.com/kamihork)
