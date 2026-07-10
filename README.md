@@ -13,6 +13,11 @@ That's the whole setup. Your sessions are already recorded — Claude Code write
 
 **Zero instrumentation. Zero cloud. Zero config.** Nothing is sent anywhere; the viewer binds to `127.0.0.1` and reads files you already have.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.png">
+  <img alt="AgentFDR timeline: a real 200-turn session with anomaly flags, the tool/context/output lanes, and the turn dissection panel" src="assets/screenshot-light.png">
+</picture>
+
 ## Why
 
 Autonomous agent failures are hard to debug because the evidence is gone by the time you notice:
@@ -54,6 +59,8 @@ In the viewer: the **dissection panel** lives on the right (always visible on wi
 **Session readout** — the header line lists every model that produced a turn (with per-model turn counts when the session switched models), the number of fast-mode turns, and the effort level. A caveat on effort: it is not a structured field in the transcript, so it's recovered from `/effort` command output and only appears when the level was set during the session.
 
 **Cost estimate** — each session (and `stats`/`blame`) shows an estimated USD cost computed from list prices per model, with cache reads at ≈0.1× and cache writes at ≈1.25× the input price. It's an estimate: discounts, batch tiers, and price changes aren't visible in the transcript. Unknown models are excluded and flagged.
+
+![Plan usage panel: 5-hour window, daily history, weekly totals and per-model breakdown](assets/screenshot-usage-dark.png)
 
 **Plan usage** — `agentfdr usage` (and the **Usage** panel in the viewer) aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour rolling window, per-day history, and the rolling week, plus a per-model breakdown. Your plan tier (e.g. `claude_max · default_claude_max_5x`) is read from Claude Code's local config. Anthropic doesn't publish exact token limits, so you set your own budgets (`--budget-5h` / `--budget-week`, env `AGENTFDR_BUDGET_5H` / `AGENTFDR_BUDGET_WEEK`, or inputs in the viewer) and calibrate them against Claude Code's `/usage` screen — agentfdr then shows % consumed with warning colors.
 

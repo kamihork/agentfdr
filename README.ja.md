@@ -11,6 +11,11 @@ npx agentfdr
 
 **計装ゼロ。クラウドゼロ。設定ゼロ。** データはどこにも送信されません。ビューアは `127.0.0.1` にのみバインドし、手元に既にあるファイルを読むだけです。
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.png">
+  <img alt="AgentFDR タイムライン: 実際の200ターンセッション。異常フラグ、ツール/コンテキスト/出力レーン、ターン解剖パネル" src="assets/screenshot-light.png">
+</picture>
+
 ## なぜ必要か
 
 自律エージェントの故障は、気づいた時には証拠が流れてしまっているためデバッグが困難です:
@@ -53,6 +58,8 @@ agentfdr assert --no-loops --max-tokens 2M   # CI ゲート: 違反で exit 1
 **セッション情報** — ヘッダー行に、ターンを生成した全モデル(セッション途中でモデルを切り替えた場合はモデルごとのターン数付き)、fast モードのターン数、effort レベルを表示します。effort に関する注意: transcript の構造化フィールドには記録されていないため、`/effort` コマンドの出力から復元しています。セッション中に設定を変更した場合のみ表示されます。
 
 **コスト推定** — 各セッション(および `stats` / `blame`)に、モデルごとの定価から算出した推定 USD を表示します(キャッシュ読取 ≈0.1×、書込 ≈1.25× で計算)。あくまで概算です: 割引・バッチ料金・価格改定は transcript からは分かりません。不明なモデルは除外してその旨を表示します。
+
+![プラン使用量パネル: 5時間ウィンドウ、日別履歴、週合計、モデル別内訳](assets/screenshot-usage-dark.png)
 
 **プラン使用量** — `agentfdr usage`(ビューアの **使用量** パネルも同じ)は、全プロジェクトの transcript を、サブスクリプションの計測単位と同じ形に集計します: 現在の5時間ローリングウィンドウ、日別履歴、直近7日、モデル別内訳。プラン種別(例: `claude_max · default_claude_max_5x`)は Claude Code のローカル設定から自動取得します。正確なトークン上限は非公開のため、予算は自分で設定し(`--budget-5h` / `--budget-week`、環境変数 `AGENTFDR_BUDGET_5H` / `AGENTFDR_BUDGET_WEEK`、またはビューアの入力欄)、Claude Code の `/usage` 画面と見比べてキャリブレーションする方式です。設定すると消費率が警告色付きのバーで表示されます。
 

@@ -56,7 +56,10 @@ export function estimateSessionCost(model) {
     const m = turn.model ?? model.session.model;
     const p = priceFor(m);
     if (!p) {
-      if (m) unknown.add(m);
+      // Zero-usage pseudo-models (e.g. "<synthetic>") shouldn't mark the
+      // estimate as partial — nothing priceable was consumed.
+      const u = turn.usage;
+      if (m && (u.input + u.output + u.cacheRead + u.cacheCreation) > 0) unknown.add(m);
       continue;
     }
     priced = true;

@@ -118,6 +118,7 @@ export function collectUsage({ days = 14, now = Date.now(), loadModel = parseSes
     windows: reconstructWindows(events, now, emptyBucket, accumulate),
     models: [...modelTotals]
       .map(([model, b]) => ({ model, ...b, unpriced: priceFor(model) == null }))
+      .filter((m) => m.billed > 0 || m.tokens.cacheRead > 0) // hide zero-usage pseudo-models
       .sort((a, b) => b.billed - a.billed),
     unknownModels: [...unknownModels],
     plan: planInfo(),

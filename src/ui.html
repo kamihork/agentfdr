@@ -574,6 +574,15 @@ async function init() {
   const savedTheme = localStorage.getItem('agentfdr.theme');
   if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 
+  // Deep-linkable view state: ?theme=dark&uilang=en&tab=usage&sel=95
+  // (lets you share/reproduce an exact view; also used for screenshots)
+  const qp = new URLSearchParams(location.search);
+  if (qp.get('theme') === 'dark' || qp.get('theme') === 'light') {
+    document.documentElement.dataset.theme = qp.get('theme');
+  }
+  if (qp.get('uilang') === 'en' || qp.get('uilang') === 'ja') LANG = qp.get('uilang');
+  if (['timeline', 'table', 'prompts', 'usage'].includes(qp.get('tab'))) TAB = qp.get('tab');
+
   $('themeToggle').addEventListener('click', () => {
     const root = document.documentElement;
     const dark = matchMedia('(prefers-color-scheme: dark)').matches;
@@ -640,7 +649,14 @@ async function init() {
   sel.value = first;
   await load(first);
   // `agentfdr watch` opens the viewer with ?live=1
-  if (new URLSearchParams(location.search).get('live') === '1') setLive(true);
+  if (qp.get('live') === '1') setLive(true);
+  const selTurn = qp.get('sel') === null ? NaN : Number(qp.get('sel'));
+  if (Number.isInteger(selTurn) && MODEL && MODEL.turns[selTurn]) {
+    selectedTurn = selTurn;
+    renderDetail();
+    updateSelection();
+    scrollToTurn(selTurn);
+  }
 }
 
 function setLive(on) {
