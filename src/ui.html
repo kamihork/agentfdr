@@ -115,12 +115,25 @@
     border-radius: 4px; padding: 0 4px; margin: 0 1px;
   }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 8px; }
-  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 9px; padding: 7px 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 8px; }
+  .tile {
+    position: relative; overflow: hidden;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 9px;
+    padding: 7px 12px 9px;
+  }
   .tile .label { font-size: 11.5px; color: var(--text-secondary); }
-  .tile .value { font-size: 19px; font-weight: 600; }
-  .tile .sub { font-size: 11.5px; color: var(--text-muted); }
+  .tile .value { font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .tile .value.ok { color: var(--out); }
+  .tile .value.warn { color: var(--status-warning); }
+  .tile .value.crit { color: var(--status-critical); }
+  .tile .sub { font-size: 11.5px; color: var(--text-muted); position: relative; }
   .tile .sub.bad { color: var(--status-critical); }
+  .tile svg.spark {
+    position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 26px;
+    display: block; pointer-events: none;
+  }
+  .tile .gauge { height: 5px; border-radius: 3px; background: var(--wash); margin-top: 5px; overflow: hidden; }
+  .tile .gauge > div { height: 100%; border-radius: 3px; }
 
   #flagstrip { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
   .flagchip {
@@ -380,12 +393,13 @@ const I18N = {
     turnsTable: 'Turns',
     empty: 'No sessions found under ~/.claude/projects.',
     hint: 'click a turn to dissect · <kbd>←</kbd><kbd>→</kbd> move · <kbd>Esc</kbd> close',
-    tiles: { turns: 'Turns', calls: 'Tool calls', out: 'Output tokens', peak: 'Context peak', cost: 'Est. cost', flags: 'Anomalies' },
+    tiles: { turns: 'Turns', calls: 'Tool calls', out: 'Output tokens', peak: 'Context peak', cache: 'Cache hit rate', cost: 'Est. cost', flags: 'Anomalies' },
     subs: {
       prompts: (n) => `${n} prompts`, errors: (n) => `${n} errors`, noErrors: 'no errors',
       fresh: (k) => `in ${k} fresh`, cacheTotal: (k) => `cache-read ${k} total`,
       critical: (n) => `${n} critical`, noneCritical: 'none critical',
       estimate: 'list-price estimate', partialEstimate: 'partial — unknown model',
+      cacheIo: (r, w) => `read ${r} · write ${w}`,
     },
     lanes: { tools: 'TOOLS', ctx: 'CONTEXT TOKENS', out: 'OUTPUT TOKENS' },
     legendGroups: { tools: 'TOOLS', tokens: 'TOKENS' },
@@ -464,12 +478,13 @@ const I18N = {
     turnsTable: 'ターン一覧',
     empty: '~/.claude/projects にセッションが見つかりません。',
     hint: 'ターンをクリックで解剖 · <kbd>←</kbd><kbd>→</kbd> 移動 · <kbd>Esc</kbd> 閉じる',
-    tiles: { turns: 'ターン数', calls: 'ツール呼び出し', out: '出力トークン', peak: 'コンテキスト最大', cost: '推定コスト', flags: '異常検知' },
+    tiles: { turns: 'ターン数', calls: 'ツール呼び出し', out: '出力トークン', peak: 'コンテキスト最大', cache: 'キャッシュ効率', cost: '推定コスト', flags: '異常検知' },
     subs: {
       prompts: (n) => `プロンプト ${n}件`, errors: (n) => `エラー ${n}件`, noErrors: 'エラーなし',
       fresh: (k) => `新規入力 ${k}`, cacheTotal: (k) => `キャッシュ読取 計${k}`,
       critical: (n) => `重大 ${n}件`, noneCritical: '重大なし',
       estimate: '定価ベースの概算', partialEstimate: '不明モデル分を除く概算',
+      cacheIo: (r, w) => `読取 ${r} · 書込 ${w}`,
     },
     lanes: { tools: 'ツール', ctx: 'コンテキストトークン', out: '出力トークン' },
     legendGroups: { tools: 'ツール', tokens: 'トークン' },
@@ -1058,33 +1073,99 @@ function renderMeta() {
   }
 }
 
+/** Grafana-style stat sparkline: a low-opacity area chart hugging the tile bottom. */
+function sparkline(values, color) {
+  if (!values || values.length < 2) return null;
+  const w = 200, h = 26;
+  const max = Math.max(...values, 1);
+  const step = w / (values.length - 1);
+  let line = '';
+  values.forEach((v, i) => {
+    const x = (i * step).toFixed(1);
+    const y = (h - 1 - (v / max) * (h - 3)).toFixed(1);
+    line += (i ? 'L' : 'M') + x + ' ' + y;
+  });
+  const svg = mk('svg', { viewBox: `0 0 ${w} ${h}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
+  svg.setAttribute('class', 'spark');
+  svg.appendChild(mk('path', { d: line + `L${w} ${h}L0 ${h}Z`, fill: color, opacity: 0.16 }));
+  svg.appendChild(mk('path', { d: line, fill: 'none', stroke: color, 'stroke-width': 1.4, opacity: 0.7 }));
+  return svg;
+}
+
 function renderTiles() {
   const t = MODEL.totals;
   const flags = MODEL.flags;
   const L = T();
+  const turns = MODEL.turns;
   const crit = flags.filter((f) => f.severity === 'critical').length;
-  const peak = Math.max(0, ...MODEL.turns.map((tt) => tt.contextTokens));
+  const peak = Math.max(0, ...turns.map((tt) => tt.contextTokens));
+
+  // Cache efficiency: how much of the prompt was served from cache.
+  const cacheDenom = t.tokens.input + t.tokens.cacheRead + t.tokens.cacheCreation;
+  const hitRate = cacheDenom > 0 ? t.tokens.cacheRead / cacheDenom : null;
+  const hitClass = hitRate == null ? '' : hitRate >= 0.8 ? 'ok' : hitRate >= 0.5 ? 'warn' : 'crit';
+  const hitColor = hitRate == null ? '--text-muted' : hitRate >= 0.8 ? '--out' : hitRate >= 0.5 ? '--status-warning' : '--status-critical';
+
+  // Cumulative billed tokens: the cost curve's shape without client-side pricing.
+  let acc = 0;
+  const billedCum = turns.map((tt) => (acc += tt.usage.input + tt.usage.cacheCreation + tt.usage.output));
+
   const tiles = [
-    [L.tiles.turns, String(t.turns), L.subs.prompts(MODEL.prompts.length)],
-    [L.tiles.calls, String(t.toolCalls), t.toolErrors ? L.subs.errors(t.toolErrors) : L.subs.noErrors, t.toolErrors > 0],
-    [L.tiles.out, kTok(t.tokens.output), L.subs.fresh(kTok(t.tokens.input + t.tokens.cacheCreation))],
-    [L.tiles.peak, kTok(peak), L.subs.cacheTotal(kTok(t.tokens.cacheRead))],
-    [L.tiles.flags, String(flags.length), crit ? L.subs.critical(crit) : L.subs.noneCritical, crit > 0],
+    { label: L.tiles.turns, value: String(t.turns), sub: L.subs.prompts(MODEL.prompts.length) },
+    {
+      label: L.tiles.calls, value: String(t.toolCalls),
+      valueClass: t.toolErrors > 0 ? 'warn' : '',
+      sub: t.toolErrors ? L.subs.errors(t.toolErrors) : L.subs.noErrors, subBad: t.toolErrors > 0,
+      spark: { values: turns.map((tt) => tt.toolCalls.length), color: css('--tool-shell') },
+    },
+    {
+      label: L.tiles.out, value: kTok(t.tokens.output),
+      sub: L.subs.fresh(kTok(t.tokens.input + t.tokens.cacheCreation)),
+      spark: { values: turns.map((tt) => tt.usage.output), color: css('--out') },
+    },
+    {
+      label: L.tiles.peak, value: kTok(peak),
+      sub: L.subs.cacheTotal(kTok(t.tokens.cacheRead)),
+      spark: { values: turns.map((tt) => tt.contextTokens), color: css('--ctx-2') },
+    },
+    {
+      label: L.tiles.cache, value: hitRate == null ? '—' : Math.round(hitRate * 100) + '%',
+      valueClass: hitClass,
+      sub: L.subs.cacheIo(kTok(t.tokens.cacheRead), kTok(t.tokens.cacheCreation)),
+      gauge: hitRate == null ? null : { pct: hitRate * 100, color: css(hitColor) },
+    },
   ];
   if (MODEL.cost && MODEL.cost.usd != null) {
-    tiles.splice(4, 0, [
-      L.tiles.cost, '~' + fmtUsd(MODEL.cost.usd),
-      MODEL.cost.unknownModels?.length ? L.subs.partialEstimate : L.subs.estimate,
-    ]);
+    tiles.push({
+      label: L.tiles.cost, value: '~' + fmtUsd(MODEL.cost.usd),
+      sub: MODEL.cost.unknownModels?.length ? L.subs.partialEstimate : L.subs.estimate,
+      spark: { values: billedCum, color: css('--tool-mcp') },
+    });
   }
+  tiles.push({
+    label: L.tiles.flags, value: String(flags.length),
+    valueClass: crit > 0 ? 'crit' : flags.length > 0 ? 'warn' : 'ok',
+    sub: crit ? L.subs.critical(crit) : L.subs.noneCritical, subBad: crit > 0,
+  });
+
   const wrap = $('tiles');
   wrap.textContent = '';
-  for (const [label, value, sub, bad] of tiles) {
+  for (const tl of tiles) {
     const d = document.createElement('div');
     d.className = 'tile';
-    add(d, 'div', 'label', label);
-    add(d, 'div', 'value', value);
-    add(d, 'div', 'sub' + (bad ? ' bad' : ''), sub);
+    add(d, 'div', 'label', tl.label);
+    add(d, 'div', 'value' + (tl.valueClass ? ' ' + tl.valueClass : ''), tl.value);
+    add(d, 'div', 'sub' + (tl.subBad ? ' bad' : ''), tl.sub);
+    if (tl.gauge) {
+      const g = add(d, 'div', 'gauge');
+      const fill = add(g, 'div', '');
+      fill.style.width = Math.min(100, tl.gauge.pct) + '%';
+      fill.style.background = tl.gauge.color;
+    }
+    if (tl.spark) {
+      const s = sparkline(tl.spark.values, tl.spark.color);
+      if (s) d.appendChild(s);
+    }
     wrap.appendChild(d);
   }
 }
