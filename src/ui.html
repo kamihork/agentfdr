@@ -712,7 +712,13 @@ async function init() {
     selectedTurn = selTurn;
     renderDetail();
     updateSelection();
-    scrollToTurn(selTurn);
+    // Center horizontally only — scrollIntoView would also scroll the page
+    // vertically and hide the header on a fresh deep-link visit.
+    const hit = document.querySelector(`[data-turn="${selTurn}"]`);
+    const lanes = $('lanes');
+    if (hit && lanes) {
+      lanes.scrollLeft = Math.max(0, Number(hit.getAttribute('x') || 0) - lanes.clientWidth / 2);
+    }
   }
 }
 
