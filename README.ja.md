@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" width="140" height="140" alt="agentfdr のロゴ — タイムラインが描かれたオレンジ色のフライトレコーダー">
+  <img src="assets/logo.png" width="140" height="140" alt="agentfdr のロゴ — コーディングエージェントを追跡するレーダー">
 
   <h1>agentfdr</h1>
 

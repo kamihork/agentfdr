@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.svg" width="140" height="140" alt="agentfdr logo — an orange flight recorder with a timeline inside">
+  <img src="assets/logo.png" width="140" height="140" alt="agentfdr logo — a radar sweep tracking your coding agent">
 
   <h1>agentfdr</h1>
 
