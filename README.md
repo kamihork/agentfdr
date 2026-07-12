@@ -31,6 +31,8 @@ That's the whole setup. Your sessions are already recorded — Claude Code write
 
 **Zero instrumentation. Zero cloud. Zero config.** Nothing is sent anywhere; the viewer binds to `127.0.0.1` and reads files you already have.
 
+> If agentfdr showed you something you didn't know about your sessions, a ⭐ on this repo helps other agent users find it.
+
 ## Features
 
 - 🛫 **Timeline viewer** — one screen for the whole session: every turn's tool calls, context-window composition, and output tokens, with prompt and compaction markers
