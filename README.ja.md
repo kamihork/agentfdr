@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.png" width="140" height="140" alt="agentfdr のロゴ — コーディングエージェントを追跡するレーダー">
+  <img src="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/logo.png" width="140" height="140" alt="agentfdr のロゴ — コーディングエージェントを追跡するレーダー">
 
   <h1>agentfdr</h1>
 
@@ -17,8 +17,8 @@
 </div>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.png">
-  <img alt="agentfdr タイムライン: 実際の200ターンセッション。異常フラグ、ツール/コンテキスト/出力レーン、ターン解剖パネル" src="assets/screenshot-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-dark.png">
+  <img alt="agentfdr タイムライン: 実際の200ターンセッション。異常フラグ、ツール/コンテキスト/出力レーン、ターン解剖パネル" src="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-light.png">
 </picture>
 
 ## クイックスタート
@@ -88,7 +88,7 @@ agentfdr assert --no-loops --max-tokens 2M   # CI ゲート: 違反で exit 1
 
 **コスト推定** — 各セッション(および `stats` / `blame`)に、モデルごとの定価から算出した推定 USD を表示します(キャッシュ読取 ≈0.1×、書込 ≈1.25× で計算)。あくまで概算です: 割引・バッチ料金・価格改定は transcript からは分かりません。不明なモデルは除外してその旨を表示します。
 
-![プラン使用量パネル: 5時間ウィンドウ、日別履歴、週合計、モデル別内訳](assets/screenshot-usage-dark.png)
+![プラン使用量パネル: 5時間ウィンドウ、日別履歴、週合計、モデル別内訳](https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-usage-dark.png)
 
 **プラン使用量** — `agentfdr usage`(ビューアの **使用量** パネルも同じ)は、全プロジェクトの transcript を、サブスクリプションの計測単位と同じ形に集計します: 現在の5時間ローリングウィンドウ、日別履歴、直近7日、モデル別内訳。プラン種別(例: `claude_max · default_claude_max_5x`)は Claude Code のローカル設定から自動取得します。正確なトークン上限は公開されていないため、予算は自分で設定する方式です(`--budget-5h` / `--budget-week`、環境変数 `AGENTFDR_BUDGET_5H` / `AGENTFDR_BUDGET_WEEK`、またはビューアの入力欄)。Claude Code の `/usage` 画面と一度見比べて値を調整すれば、以後は消費率が警告色付きのバーで表示されます。
 

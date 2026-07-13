@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.png" width="140" height="140" alt="agentfdr logo — a radar sweep tracking your coding agent">
+  <img src="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/logo.png" width="140" height="140" alt="agentfdr logo — a radar sweep tracking your coding agent">
 
   <h1>agentfdr</h1>
 
@@ -17,8 +17,8 @@
 </div>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot-dark.png">
-  <img alt="agentfdr timeline: a real 200-turn session with anomaly flags, the tool/context/output lanes, and the turn dissection panel" src="assets/screenshot-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-dark.png">
+  <img alt="agentfdr timeline: a real 200-turn session with anomaly flags, the tool/context/output lanes, and the turn dissection panel" src="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-light.png">
 </picture>
 
 ## Quick start
@@ -88,7 +88,7 @@ Tabs switch the main view: **Timeline / Turns / Prompts / Usage**; clicking a pr
 
 **Cost estimate** — each session (and `stats`/`blame`) shows an estimated USD cost computed from list prices per model, with cache reads at ≈0.1× and cache writes at ≈1.25× the input price. It's an estimate: discounts, batch tiers, and price changes aren't visible in the transcript. Unknown models are excluded and flagged.
 
-![Plan usage panel: 5-hour window, daily history, weekly totals and per-model breakdown](assets/screenshot-usage-dark.png)
+![Plan usage panel: 5-hour window, daily history, weekly totals and per-model breakdown](https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-usage-dark.png)
 
 **Plan usage** — `agentfdr usage` (and the **Usage** panel in the viewer) aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour rolling window, per-day history, and the rolling week, plus a per-model breakdown. Your plan tier (e.g. `claude_max · default_claude_max_5x`) is read from Claude Code's local config. Anthropic doesn't publish exact token limits, so you set your own budgets (`--budget-5h` / `--budget-week`, env `AGENTFDR_BUDGET_5H` / `AGENTFDR_BUDGET_WEEK`, or inputs in the viewer) and calibrate them against Claude Code's `/usage` screen — agentfdr then shows % consumed with warning colors.
 
