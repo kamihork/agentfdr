@@ -8,6 +8,7 @@ import { estimateSessionCost, fmtUsd } from './cost.js';
 import { runAsserts, parseTokenCount } from './assert.js';
 import { collectUsage, budgetPct } from './usage.js';
 import { diffSessions } from './diff.js';
+import { loadConfig } from './config.js';
 
 const HELP = `agentfdr — flight data recorder for local coding agents
 
@@ -28,6 +29,8 @@ Options:
   --no-browser        Don't auto-open the browser
   --json              Machine-readable output (list, blame, assert)
   --lang <code>       Output language: en, ja (default: auto from LANG)
+  --config <path>     Detector config (default: ./.agentfdr.json, then ~/.agentfdr.json)
+                      Thresholds, disabled detectors, loop suppressions, custom regex rules
 
 Assert options (any combination; unset checks are skipped):
   --no-loops          Fail if a tool loop was detected
@@ -47,7 +50,7 @@ Usage options:
 
 Data source: ~/.claude/projects (override with AGENTFDR_CLAUDE_DIR)`;
 
-const VALUE_FLAGS = ['--port', '--lang', '--max-errors', '--max-turns', '--max-tokens', '--max-cost', '--days', '--budget-5h', '--budget-week'];
+const VALUE_FLAGS = ['--port', '--lang', '--max-errors', '--max-turns', '--max-tokens', '--max-cost', '--days', '--budget-5h', '--budget-week', '--config'];
 const BOOL_FLAGS = ['--no-browser', '--json', '--no-loops', '--no-critical', '--help'];
 
 /**
@@ -101,30 +104,37 @@ export async function main(argv) {
   }
   const browse = !flags.has('--no-browser');
 
+  let config;
+  try {
+    config = loadConfig(flags.get('--config'));
+  } catch (err) {
+    return usageError([err.message]);
+  }
+
   switch (cmd) {
     case 'list':
       return cmdList(flags.has('--json'), lang);
     case 'open':
-      return cmdOpen(ref, port, browse, false);
+      return cmdOpen(ref, port, browse, false, config);
     case 'watch':
-      return cmdOpen(ref, port, browse, true);
+      return cmdOpen(ref, port, browse, true, config);
     case 'blame':
-      return cmdBlame(ref, flags.has('--json'), lang);
+      return cmdBlame(ref, flags.has('--json'), lang, config);
     case 'diff':
-      return cmdDiff(ref, positional[2], flags.has('--json'), lang);
+      return cmdDiff(ref, positional[2], flags.has('--json'), lang, config);
     case 'stats':
       return cmdStats();
     case 'usage':
       return cmdUsage(flags, lang);
     case 'assert':
-      return cmdAssert(ref, flags);
+      return cmdAssert(ref, flags, config);
     case 'help':
     case '-h':
       console.log(HELP);
       return;
     default:
       // Bare session ref: `agentfdr 35cb18` == `agentfdr open 35cb18`
-      return cmdOpen(cmd, port, browse, false);
+      return cmdOpen(cmd, port, browse, false, config);
   }
 }
 
@@ -158,9 +168,9 @@ function cmdList(asJson, lang) {
   console.log('\n' + s.openWith);
 }
 
-async function cmdOpen(ref, port, browse, live) {
+async function cmdOpen(ref, port, browse, live, config) {
   const { id } = resolveSession(ref);
-  const { url, port: boundPort } = await startServer({ port, initialSession: id, live });
+  const { url, port: boundPort } = await startServer({ port, initialSession: id, live, config });
   if (boundPort !== port) console.log(`agentfdr: port ${port} in use, using ${boundPort}`);
   console.log(`agentfdr: recording deck at ${url}`);
   console.log(`          session ${id}${live ? '  (live)' : ''}`);
@@ -168,10 +178,10 @@ async function cmdOpen(ref, port, browse, live) {
   if (browse) openInBrowser(url);
 }
 
-function cmdBlame(ref, asJson, lang) {
+function cmdBlame(ref, asJson, lang, config) {
   const { file } = resolveSession(ref);
   const model = parseSessionFile(file);
-  const flags = detect(model);
+  const flags = detect(model, config);
   if (asJson) {
     const cost = estimateSessionCost(model);
     console.log(JSON.stringify({ session: model.session, totals: model.totals, cost, flags }, null, 2));
@@ -180,13 +190,13 @@ function cmdBlame(ref, asJson, lang) {
   console.log(blameReport(model, flags, lang));
 }
 
-function cmdDiff(refA, refB, asJson, lang) {
+function cmdDiff(refA, refB, asJson, lang, config) {
   const s = t(lang);
   if (!refA || !refB) return usageError(['diff needs two session refs: agentfdr diff <a> <b>']);
   const load = (ref) => {
     const { file } = resolveSession(ref);
     const model = parseSessionFile(file);
-    return { model, flags: detect(model) };
+    return { model, flags: detect(model, config) };
   };
   const d = diffSessions(load(refA), load(refB));
 
@@ -233,7 +243,7 @@ function cmdDiff(refA, refB, asJson, lang) {
   if (d.files.onlyB.length) console.log(`\n${s.filesOnly('B')}:\n${fileList(d.files.onlyB, d.files.truncated.onlyB)}`);
 }
 
-function cmdAssert(ref, flags) {
+function cmdAssert(ref, flags, config) {
   // A limit that was given but doesn't parse must be a hard error, never a
   // silently-skipped check — a CI gate that can't read its limit must not pass.
   const errors = [];
@@ -256,7 +266,7 @@ function cmdAssert(ref, flags) {
 
   const { file, id } = resolveSession(ref);
   const model = parseSessionFile(file);
-  const detected = detect(model);
+  const detected = detect(model, config);
   const result = runAsserts(model, detected, opts);
   const asJson = flags.has('--json');
 

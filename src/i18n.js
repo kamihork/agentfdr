@@ -116,6 +116,9 @@ const FLAG_FMT = {
     'cache-thrash': (p) => [`${p.count} turns with zero cache hits`, 'Full input re-read each turn — check for context churn'],
     'file-churn': (p) => [`Same file edited ${p.count}×`, p.path],
     'refusal': () => ['Model refusal', 'stop_reason: refusal — the request was declined'],
+    'stalled-call': (p) => [`${p.count} tool call(s) never returned`, `First: ${p.first}`],
+    'api-error': (p) => ['API/provider error', `${p.name}: ${p.match}`],
+    'custom': (p) => [p.name, `matched: ${p.match}`],
   },
   ja: {
     'loop': (p) => [`ツールループ ×${p.repeats}`, `同一パターンを${p.repeats}回反復(${p.span}回の呼び出し): ${p.gram}`],
@@ -125,6 +128,9 @@ const FLAG_FMT = {
     'cache-thrash': (p) => [`${p.count}ターン連続でキャッシュヒットなし`, `毎ターン全入力を再読込 — コンテキストの入れ替わりを確認`],
     'file-churn': (p) => [`同一ファイルを${p.count}回編集`, p.path],
     'refusal': () => ['モデルによる拒否', 'stop_reason: refusal — リクエストが拒否されました'],
+    'stalled-call': (p) => [`結果が返らないツール呼び出し ${p.count}件`, `最初: ${p.first}`],
+    'api-error': (p) => ['API/プロバイダエラー', `${p.name}: ${p.match}`],
+    'custom': (p) => [p.name, `マッチ: ${p.match}`],
   },
 };
 

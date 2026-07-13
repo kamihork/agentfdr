@@ -22,6 +22,7 @@ const UI_PATH = join(dirname(fileURLToPath(import.meta.url)), 'ui.html');
 // nothing changed would be wasteful.
 const CACHE_MAX = 20;
 const parseCache = new Map(); // file -> { mtimeMs, size, model, flags, cost }
+let serverConfig = { path: null }; // detector config, fixed for the server's lifetime
 
 function loadSession(file) {
   const st = statSync(file);
@@ -32,7 +33,7 @@ function loadSession(file) {
     return hit;
   }
   const model = parseSessionFile(file);
-  const flags = detect(model);
+  const flags = detect(model, serverConfig);
   const cost = estimateSessionCost(model);
   const entry = { mtimeMs: st.mtimeMs, size: st.size, model, flags, cost };
   parseCache.delete(file); // refresh LRU position
@@ -60,7 +61,8 @@ function loadForUsage(file) {
   return lite;
 }
 
-export function startServer({ port = 4477, initialSession = null, live = false } = {}) {
+export function startServer({ port = 4477, initialSession = null, live = false, config } = {}) {
+  if (config) serverConfig = config;
   const server = createServer((req, res) => {
     try {
       route(req, res);
@@ -131,7 +133,7 @@ export function startServer({ port = 4477, initialSession = null, live = false }
         ...t,
         toolCalls: t.toolCalls.map(({ input, ...call }) => call),
       }));
-      sendJson(res, 200, { ...model, turns, flags, cost, mtimeMs, sizeBytes: size });
+      sendJson(res, 200, { ...model, turns, flags, cost, mtimeMs, sizeBytes: size, configPath: serverConfig.path });
       return;
     }
     if (url.pathname === '/api/usage') {

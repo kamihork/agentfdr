@@ -105,6 +105,30 @@ Heuristics that answer "where do I look first?":
 | `cache-thrash` | Consecutive turns paying full price, zero cache hits |
 | `file-churn` | The same file edited 6+ times |
 | `refusal` | A turn ended with `stop_reason: refusal` (safety decline) |
+| `stalled-call` | A tool call never returned a result while the session moved on |
+| `api-error` | A failing tool result carried an upstream API error (rate limit, overloaded, quota) |
+| `custom` | Your own regex rules from `.agentfdr.json` (see below) |
+
+### Configuration
+
+All detectors are tunable via `.agentfdr.json` (looked up as `--config <path>` → `./.agentfdr.json` → `~/.agentfdr.json`). JSON rather than YAML keeps the zero-dependency promise. A malformed config is a hard error — a CI gate must never run with half its rules silently dropped.
+
+```json
+{
+  "thresholds": { "loopRepeats": 5, "contextBloatChars": 100000 },
+  "disable": ["cache-thrash"],
+  "suppressLoops": ["Bash:npm test", "Edit:*"],
+  "custom": [
+    { "name": "quota-masked", "match": "quota exceeded|monthly limit",
+      "in": "tool-results", "severity": "critical" }
+  ]
+}
+```
+
+- `thresholds` — override any detector threshold (`loopRepeats`, `loopMinCalls`, `errorStreak`, `contextBloatChars`, `tokenSpikeTokens`, `tokenSpikeRatio`, `cacheThrashTurns`, `fileChurnEdits`)
+- `suppressLoops` — tool signatures whose repetition is legitimate (retrying a test, polling a build); exact match or `prefix*`
+- `disable` — turn whole detectors off
+- `custom` — your own regex rules over tool results and/or assistant text (`in`: `tool-results` | `assistant-text` | `both`), surfaced as first-class flags in the viewer, blame report, and `assert`
 
 ## How it works
 
@@ -126,9 +150,10 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 - [x] CI gate — `agentfdr assert --no-loops --max-tokens 2M`
 - [x] Cost estimation from per-model list prices
 - [x] Session diff — compare the failed attempt with the successful retry
+- [x] Pluggable detector rules — thresholds, suppressions and custom regex rules via `.agentfdr.json`
+- [ ] Convergence-aware loop detection (is the retry making progress?)
 - [ ] Adapters for other agents (Codex CLI, Gemini CLI, OpenHands, Aider) behind a common event schema
 - [ ] Subagent/sidechain tree rendering
-- [ ] Pluggable detector rules (YAML)
 
 ## Development
 

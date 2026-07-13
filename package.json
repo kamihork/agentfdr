@@ -1,6 +1,6 @@
 {
   "name": "agentfdr",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Flight data recorder for local coding agents — dissect why Claude Code (and friends) looped, drifted, or burned tokens. Zero instrumentation, local-first.",
   "type": "module",
   "bin": {

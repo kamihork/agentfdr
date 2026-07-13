@@ -105,6 +105,30 @@ agentfdr assert --no-loops --max-tokens 2M   # CI ゲート: 違反で exit 1
 | `cache-thrash` | キャッシュヒットゼロのターンが連続 |
 | `file-churn` | 同一ファイルを6回以上編集 |
 | `refusal` | `stop_reason: refusal` で終了したターン(安全機構による拒否) |
+| `stalled-call` | 結果が返らないままセッションが先へ進んだツール呼び出し |
+| `api-error` | 失敗したツール結果に上流の API エラー(レート制限・過負荷・クォータ)が含まれる |
+| `custom` | `.agentfdr.json` で定義した独自の正規表現ルール(下記参照) |
+
+### 設定
+
+すべての検知器は `.agentfdr.json` で調整できます(探索順: `--config <path>` → `./.agentfdr.json` → `~/.agentfdr.json`)。依存ゼロを守るため YAML ではなく JSON です。壊れた設定は必ずエラーになります — CI ゲートがルールの半分を黙って落としたまま動くことがあってはならないためです。
+
+```json
+{
+  "thresholds": { "loopRepeats": 5, "contextBloatChars": 100000 },
+  "disable": ["cache-thrash"],
+  "suppressLoops": ["Bash:npm test", "Edit:*"],
+  "custom": [
+    { "name": "quota-masked", "match": "quota exceeded|monthly limit",
+      "in": "tool-results", "severity": "critical" }
+  ]
+}
+```
+
+- `thresholds` — 各検知器の閾値を上書き(`loopRepeats`、`loopMinCalls`、`errorStreak`、`contextBloatChars`、`tokenSpikeTokens`、`tokenSpikeRatio`、`cacheThrashTurns`、`fileChurnEdits`)
+- `suppressLoops` — 反復が正当なツールシグネチャ(テストのリトライ、ビルドのポーリングなど)。完全一致または `プレフィックス*`
+- `disable` — 検知器ごと無効化
+- `custom` — ツール結果やアシスタントの発言に対する独自の正規表現ルール(`in`: `tool-results` | `assistant-text` | `both`)。ビューア・blame レポート・`assert` に他のフラグと同格で現れます
 
 ## 仕組み
 
@@ -126,9 +150,10 @@ transcript にはあなたのコード・プロンプト・ファイルパスが
 - [x] CI ゲート — `agentfdr assert --no-loops --max-tokens 2M`
 - [x] モデル別定価によるコスト推定
 - [x] セッション比較 — 失敗した試行と成功した再試行の diff
+- [x] 検知ルールのプラグイン化 — `.agentfdr.json` で閾値・除外・カスタム正規表現ルール
+- [ ] 収束判定つきループ検知(そのリトライは前進しているか?)
 - [ ] 他エージェントのアダプタ(Codex CLI、Gemini CLI、OpenHands、Aider)と共通イベントスキーマ
 - [ ] サブエージェント/サイドチェーンのツリー表示
-- [ ] 検知ルールのプラグイン化(YAML)
 
 ## 開発
 

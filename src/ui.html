@@ -427,6 +427,9 @@ const I18N = {
       'cache-thrash': (p) => `${p.count} turns with zero cache hits`,
       'file-churn': (p) => `Same file edited ${p.count}×`,
       'refusal': () => 'Model refusal',
+      'stalled-call': (p) => `${p.count} call(s) never returned`,
+      'api-error': () => 'API/provider error',
+      'custom': (p) => p.name,
     },
     flagDetails: {
       'loop': (p) => `Repeated ${p.repeats}× (${p.span} calls): ${p.gram}`,
@@ -436,6 +439,9 @@ const I18N = {
       'cache-thrash': () => 'Full input re-read each turn',
       'file-churn': (p) => p.path,
       'refusal': () => 'stop_reason: refusal — the request was declined',
+      'stalled-call': (p) => `First: ${p.first}`,
+      'api-error': (p) => `${p.name}: ${p.match}`,
+      'custom': (p) => `matched: ${p.match}`,
     },
   },
   ja: {
@@ -512,6 +518,9 @@ const I18N = {
       'cache-thrash': (p) => `${p.count}ターン キャッシュヒットなし`,
       'file-churn': (p) => `同一ファイルを${p.count}回編集`,
       'refusal': () => 'モデルによる拒否',
+      'stalled-call': (p) => `結果未返却の呼び出し ${p.count}件`,
+      'api-error': () => 'API/プロバイダエラー',
+      'custom': (p) => p.name,
     },
     flagDetails: {
       'loop': (p) => `同一パターンを${p.repeats}回反復(${p.span}回の呼び出し): ${p.gram}`,
@@ -521,6 +530,9 @@ const I18N = {
       'cache-thrash': () => '毎ターン全入力を再読込',
       'file-churn': (p) => p.path,
       'refusal': () => 'stop_reason: refusal — リクエストが拒否されました',
+      'stalled-call': (p) => `最初: ${p.first}`,
+      'api-error': (p) => `${p.name}: ${p.match}`,
+      'custom': (p) => `マッチ: ${p.match}`,
     },
   },
 };
@@ -1071,6 +1083,7 @@ function renderMeta() {
     s.effort && T().effortBit(s.effort),
     s.cwd && s.cwd + (s.gitBranch ? ' (' + s.gitBranch + ')' : ''),
     s.startedAt && new Date(s.startedAt).toLocaleString(), t.wallMs != null && fmtMs(t.wallMs),
+    MODEL.configPath && '⚙ ' + MODEL.configPath.split('/').pop(),
   ].filter(Boolean);
   el.textContent = bits.join('  ·  ');
   if (LIVE) {

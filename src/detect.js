@@ -3,19 +3,32 @@
 //
 // These are deliberately simple heuristics. They exist to answer "where should
 // I look first?", not to be a verdict — the timeline is the evidence.
+// Thresholds, suppressions and custom rules come from .agentfdr.json (config.js).
 
 import { toolSignature } from './parser.js';
+import { DEFAULT_THRESHOLDS } from './config.js';
 
-export function detect(model) {
-  const flags = [
-    ...detectToolLoops(model),
-    ...detectErrorStreaks(model),
-    ...detectContextBloat(model),
-    ...detectTokenSpikes(model),
-    ...detectCacheThrash(model),
-    ...detectFileChurn(model),
-    ...detectRefusals(model),
+export function detect(model, config = {}) {
+  const th = { ...DEFAULT_THRESHOLDS, ...(config.thresholds ?? {}) };
+  const disabled = new Set(config.disable ?? []);
+  const detectors = [
+    ['loop', () => detectToolLoops(model, th, config.suppressLoops ?? [])],
+    ['error-streak', () => detectErrorStreaks(model, th)],
+    ['context-bloat', () => detectContextBloat(model, th)],
+    ['token-spike', () => detectTokenSpikes(model, th)],
+    ['cache-thrash', () => detectCacheThrash(model, th)],
+    ['file-churn', () => detectFileChurn(model, th)],
+    ['refusal', () => detectRefusals(model)],
+    ['stalled-call', () => detectStalledCalls(model)],
+    ['api-error', () => detectApiErrors(model)],
   ];
+
+  const flags = [];
+  for (const [type, run] of detectors) {
+    if (!disabled.has(type)) flags.push(...run());
+  }
+  flags.push(...detectCustom(model, config.custom ?? []));
+
   const order = { critical: 0, warning: 1 };
   flags.sort((a, b) => order[a.severity] - order[b.severity] || a.turnStart - b.turnStart);
   return flags;
@@ -30,12 +43,17 @@ function callSequence(model) {
   return seq;
 }
 
+/** "Bash:npm test" matches exactly; "Edit:*" matches by prefix. */
+function isSuppressed(sig, patterns) {
+  return patterns.some((p) => (p.endsWith('*') ? sig.startsWith(p.slice(0, -1)) : sig === p));
+}
+
 /**
- * Loop: the same n-gram of tool signatures repeated >= 3 times consecutively
- * (n = 1..4), covering at least 6 calls. Reports the longest span at each
- * start position, skipping spans contained in an already-reported one.
+ * Loop: the same n-gram of tool signatures repeated >= loopRepeats times
+ * consecutively (n = 1..4), covering at least loopMinCalls calls. A loop whose
+ * signatures are ALL suppressed (legitimate retries etc.) is not flagged.
  */
-export function detectToolLoops(model) {
+export function detectToolLoops(model, th = DEFAULT_THRESHOLDS, suppress = []) {
   const seq = callSequence(model);
   const flags = [];
   const covered = new Set();
@@ -50,11 +68,13 @@ export function detectToolLoops(model) {
         repeats++;
       }
       const span = repeats * n;
-      if (repeats >= 3 && span >= 6) {
+      if (repeats >= th.loopRepeats && span >= th.loopMinCalls) {
+        const gramSigs = seq.slice(i, i + n).map((s) => s.sig);
         const already = [...Array(span).keys()].every((k) => covered.has(i + k));
-        if (!already) {
+        const legit = gramSigs.every((sig) => isSuppressed(sig, suppress));
+        if (!already && !legit) {
           for (let k = 0; k < span; k++) covered.add(i + k);
-          const gram = seq.slice(i, i + n).map((s) => s.sig).join(' → ');
+          const gram = gramSigs.join(' → ');
           flags.push({
             type: 'loop',
             severity: 'critical',
@@ -80,8 +100,8 @@ function sameGram(seq, a, b, n) {
   return true;
 }
 
-/** 3+ consecutive tool results that are errors. */
-export function detectErrorStreaks(model) {
+/** errorStreak+ consecutive tool results that are errors. */
+export function detectErrorStreaks(model, th = DEFAULT_THRESHOLDS) {
   const seq = callSequence(model).filter((s) => s.call.result);
   const flags = [];
   let start = -1;
@@ -90,7 +110,7 @@ export function detectErrorStreaks(model) {
     if (isErr && start === -1) start = i;
     if (!isErr && start !== -1) {
       const len = i - start;
-      if (len >= 3) {
+      if (len >= th.errorStreak) {
         flags.push({
           type: 'error-streak',
           severity: 'critical',
@@ -107,14 +127,12 @@ export function detectErrorStreaks(model) {
   return flags;
 }
 
-const BLOAT_CHARS = 50_000;
-
 /** A single tool result large enough to crowd the context window. */
-export function detectContextBloat(model) {
+export function detectContextBloat(model, th = DEFAULT_THRESHOLDS) {
   const flags = [];
   for (const turn of model.turns) {
     for (const call of turn.toolCalls) {
-      if ((call.result?.chars ?? 0) >= BLOAT_CHARS) {
+      if ((call.result?.chars ?? 0) >= th.contextBloatChars) {
         flags.push({
           type: 'context-bloat',
           severity: 'warning',
@@ -130,14 +148,14 @@ export function detectContextBloat(model) {
   return flags.slice(0, 10);
 }
 
-/** Context tokens jumped by >60% and >50k between consecutive turns. */
-export function detectTokenSpikes(model) {
+/** Context tokens jumped by more than ratio × previous and spike tokens between turns. */
+export function detectTokenSpikes(model, th = DEFAULT_THRESHOLDS) {
   const flags = [];
   const main = model.turns.filter((t) => !t.isSidechain);
   for (let i = 1; i < main.length; i++) {
     const prev = main[i - 1].contextTokens;
     const cur = main[i].contextTokens;
-    if (prev > 0 && cur - prev > 50_000 && cur > prev * 1.6) {
+    if (prev > 0 && cur - prev > th.tokenSpikeTokens && cur > prev * th.tokenSpikeRatio) {
       flags.push({
         type: 'token-spike',
         severity: 'warning',
@@ -152,8 +170,8 @@ export function detectTokenSpikes(model) {
   return flags;
 }
 
-/** 2+ consecutive non-trivial turns paying full input price (no cache hits). */
-export function detectCacheThrash(model) {
+/** cacheThrashTurns+ consecutive non-trivial turns paying full input price (no cache hits). */
+export function detectCacheThrash(model, th = DEFAULT_THRESHOLDS) {
   const flags = [];
   const main = model.turns.filter((t) => !t.isSidechain);
   let start = -1;
@@ -162,7 +180,7 @@ export function detectCacheThrash(model) {
     const miss = t && i > 2 && t.usage.cacheRead === 0 && t.usage.input + t.usage.cacheCreation > 20_000;
     if (miss && start === -1) start = i;
     if (!miss && start !== -1) {
-      if (i - start >= 2) {
+      if (i - start >= th.cacheThrashTurns) {
         flags.push({
           type: 'cache-thrash',
           severity: 'warning',
@@ -174,6 +192,37 @@ export function detectCacheThrash(model) {
         });
       }
       start = -1;
+    }
+  }
+  return flags;
+}
+
+/** The same file edited fileChurnEdits+ times — usually an edit/test/edit spiral. */
+export function detectFileChurn(model, th = DEFAULT_THRESHOLDS) {
+  const counts = new Map(); // path -> { n, first, last }
+  for (const turn of model.turns) {
+    for (const call of turn.toolCalls) {
+      if (!['Edit', 'Write', 'NotebookEdit', 'MultiEdit'].includes(call.name)) continue;
+      const path = call.input?.file_path ?? call.input?.notebook_path;
+      if (typeof path !== 'string') continue;
+      const c = counts.get(path) ?? { n: 0, first: turn.index, last: turn.index };
+      c.n++;
+      c.last = turn.index;
+      counts.set(path, c);
+    }
+  }
+  const flags = [];
+  for (const [path, c] of counts) {
+    if (c.n >= th.fileChurnEdits) {
+      flags.push({
+        type: 'file-churn',
+        severity: 'warning',
+        title: `Same file edited ${c.n}×`,
+        detail: path,
+        params: { count: c.n, path },
+        turnStart: c.first,
+        turnEnd: c.last,
+      });
     }
   }
   return flags;
@@ -194,33 +243,105 @@ export function detectRefusals(model) {
     }));
 }
 
-/** The same file edited 6+ times — usually an edit/test/edit spiral. */
-export function detectFileChurn(model) {
-  const counts = new Map(); // path -> { n, first, last }
+/**
+ * A tool call whose result never came back, in a turn the session moved past —
+ * "stuck waiting" as opposed to "failing repeatedly". The final turn is exempt:
+ * a live session is legitimately still waiting there.
+ */
+export function detectStalledCalls(model) {
+  const last = model.turns.length - 1;
+  const flags = [];
+  for (const turn of model.turns) {
+    if (turn.index >= last) continue;
+    const stalled = turn.toolCalls.filter((c) => !c.result);
+    if (!stalled.length) continue;
+    const first = stalled[0];
+    flags.push({
+      type: 'stalled-call',
+      severity: 'warning',
+      title: `${stalled.length} tool call(s) never returned`,
+      detail: stalled.slice(0, 3).map((c) => `${c.name}(${c.summary ?? ''})`).join(', '),
+      params: { count: stalled.length, first: `${first.name}:${first.summary ?? ''}` },
+      turnStart: turn.index,
+      turnEnd: turn.index,
+    });
+  }
+  return flags.slice(0, 10);
+}
+
+// Only strong, unambiguous API-error shapes, and only on results the tool
+// itself marked as errors — docs or prose that merely MENTION "rate limit"
+// must not trip this. Broader patterns belong in user-defined custom rules.
+const API_ERROR_RE = /rate.?limit(_error|ed)?|overloaded_error|quota\s+(exceeded|reached)|too many requests|\b(429|529)\b|service unavailable/i;
+
+/** Upstream provider/API failures, distinct from ordinary tool errors. */
+export function detectApiErrors(model) {
+  const flags = [];
   for (const turn of model.turns) {
     for (const call of turn.toolCalls) {
-      if (!['Edit', 'Write', 'NotebookEdit', 'MultiEdit'].includes(call.name)) continue;
-      const path = call.input?.file_path ?? call.input?.notebook_path;
-      if (typeof path !== 'string') continue;
-      const c = counts.get(path) ?? { n: 0, first: turn.index, last: turn.index };
-      c.n++;
-      c.last = turn.index;
-      counts.set(path, c);
-    }
-  }
-  const flags = [];
-  for (const [path, c] of counts) {
-    if (c.n >= 6) {
+      if (!call.result?.isError) continue;
+      const m = API_ERROR_RE.exec(call.result.snippet ?? '');
+      if (!m) continue;
       flags.push({
-        type: 'file-churn',
+        type: 'api-error',
         severity: 'warning',
-        title: `Same file edited ${c.n}×`,
-        detail: path,
-        params: { count: c.n, path },
-        turnStart: c.first,
-        turnEnd: c.last,
+        title: 'API/provider error',
+        detail: `${call.name}: …${excerpt(call.result.snippet, m)}…`,
+        params: { name: call.name, match: m[0] },
+        turnStart: turn.index,
+        turnEnd: turn.index,
       });
     }
   }
+  return flags.slice(0, 10);
+}
+
+/** User-defined regex rules from .agentfdr.json (validated at load time). */
+export function detectCustom(model, rules) {
+  const flags = [];
+  for (const rule of rules) {
+    let re;
+    try {
+      re = new RegExp(rule.match, rule.flags ?? 'i');
+    } catch {
+      continue; // loadConfig validates; stay defensive for direct API users
+    }
+    const where = rule.in ?? 'tool-results';
+    const severity = rule.severity === 'critical' ? 'critical' : 'warning';
+    let count = 0;
+    for (const turn of model.turns) {
+      const texts = [];
+      if (where !== 'assistant-text') {
+        for (const c of turn.toolCalls) {
+          if (c.result?.snippet) texts.push([c.result.snippet, c.name]);
+        }
+      }
+      if (where !== 'tool-results' && turn.text) texts.push([turn.text, null]);
+
+      for (const [text, tool] of texts) {
+        const m = re.exec(text);
+        if (!m) continue;
+        flags.push({
+          type: 'custom',
+          severity,
+          title: rule.name,
+          detail: (tool ? tool + ': ' : '') + '…' + excerpt(text, m) + '…',
+          params: { name: rule.name, match: m[0] },
+          turnStart: turn.index,
+          turnEnd: turn.index,
+        });
+        count++;
+        break; // one flag per turn per rule
+      }
+      if (count >= 10) break;
+    }
+  }
   return flags;
+}
+
+function excerpt(text, m) {
+  return text
+    .slice(Math.max(0, m.index - 40), m.index + m[0].length + 40)
+    .replace(/\s+/g, ' ')
+    .trim();
 }
