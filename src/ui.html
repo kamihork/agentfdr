@@ -443,7 +443,8 @@ const I18N = {
     searchShort: 'Type at least 2 characters.',
     sessionFilterPh: 'filter…',
     kinds: { prompt: 'prompt', assistant: 'assistant', tool: 'tool', result: 'result' },
-    heatTitle: 'Activity — last 18 weeks (billed tokens/day)',
+    heatTitle: 'Activity — last 12 months (billed tokens/day)',
+    barsTitle: 'Daily billed tokens — last 30 days',
     tabDiff: 'Compare',
     diffTitle: 'Session comparison — A is the current session',
     d: {
@@ -546,7 +547,8 @@ const I18N = {
     searchShort: '2文字以上入力してください。',
     sessionFilterPh: '絞り込み…',
     kinds: { prompt: 'プロンプト', assistant: '応答', tool: 'ツール', result: '結果' },
-    heatTitle: 'アクティビティ — 直近18週(日別課金トークン)',
+    heatTitle: 'アクティビティ — 直近12ヶ月(日別課金トークン)',
+    barsTitle: '日別課金トークン — 直近30日',
     tabDiff: '比較',
     diffTitle: 'セッション比較 — A は表示中のセッション',
     d: {
@@ -975,7 +977,7 @@ const budgetM = (key) => {
 async function loadUsage() {
   $('usageBody').textContent = '…';
   try {
-    const res = await fetch('/api/usage?days=126');
+    const res = await fetch('/api/usage?days=366');
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status);
     USAGE = data;
@@ -1035,10 +1037,10 @@ function renderUsage() {
     brow.appendChild(inp);
   }
 
-  // activity heatmap (GitHub-grass style, 18 weeks)
+  // activity heatmap (GitHub-grass style, 12 months, full card width)
   add(body, 'div', 'unote', T().heatTitle);
   const all = USAGE.days;
-  const cell = 11, cgap = 3;
+  const cell = 11, cgap = 3, topL = 13;
   const dow = (ds) => {
     const [y, m, dd] = ds.split('-').map(Number);
     return new Date(y, m - 1, dd).getDay();
@@ -1046,17 +1048,19 @@ function renderUsage() {
   const firstDow = dow(all[0].date);
   const weeks = Math.ceil((firstDow + all.length) / 7);
   const hw = weeks * (cell + cgap) + 4;
-  const hh = 7 * (cell + cgap) + 4;
-  const heat = mk('svg', { viewBox: `0 0 ${hw} ${hh}`, width: hw, height: hh });
+  const hh = topL + 7 * (cell + cgap) + 4;
+  const heat = mk('svg', { viewBox: `0 0 ${hw} ${hh}` });
   heat.setAttribute('class', 'heat');
+  heat.style.cssText = 'display:block;width:100%;height:auto';
   const maxHeat = Math.max(1, ...all.map((d) => d.billed));
+  let prevMonth = '';
   all.forEach((d, i) => {
     const slot = firstDow + i;
     const col = Math.floor(slot / 7);
     const rowY = slot % 7;
     const active = d.billed > 0;
     const r = mk('rect', {
-      x: col * (cell + cgap) + 2, y: rowY * (cell + cgap) + 2,
+      x: col * (cell + cgap) + 2, y: topL + rowY * (cell + cgap) + 2,
       width: cell, height: cell, rx: 2.5,
       fill: active ? css('--out') : css('--wash'),
       opacity: active ? 0.25 + 0.75 * Math.sqrt(d.billed / maxHeat) : 1,
@@ -1065,17 +1069,29 @@ function renderUsage() {
     tip.textContent = d.date + ' — ' + kM(d.billed) + ' tok · ~' + fmtUsd(d.usd);
     r.appendChild(tip);
     heat.appendChild(r);
+    // month label above the first column that contains the 1st (skip a cramped col 0)
+    const month = d.date.slice(0, 7);
+    if (month !== prevMonth) {
+      if (prevMonth && (col > 0 || rowY === 0)) {
+        const lbl = mk('text', { x: col * (cell + cgap) + 2, y: 10 });
+        lbl.textContent = LANG === 'ja' ? Number(d.date.slice(5, 7)) + '月' : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(d.date.slice(5, 7)) - 1];
+        heat.appendChild(lbl);
+      }
+      prevMonth = month;
+    }
   });
   body.appendChild(heat);
 
-  // daily bars (billed tokens, last 14 days)
-  const days = USAGE.days.slice(-14);
-  const bw_ = 18, gap = 4, chartH = 56, labelH = 14, padL = 4;
+  // daily bars (billed tokens, last 30 days) — scales to the card width via
+  // viewBox, so no layout measurement is needed (the card may still be hidden).
+  add(body, 'div', 'unote', T().barsTitle);
+  const days = USAGE.days.slice(-30);
+  const gap = 4, chartH = 72, labelH = 14, padL = 4, chartW = 900;
+  const bw_ = Math.floor((chartW - padL) / days.length) - gap;
   const width = padL + days.length * (bw_ + gap);
   const maxB = Math.max(1, ...days.map((d) => d.billed));
-  const svg = mk('svg', { width, height: chartH + labelH, viewBox: `0 0 ${width} ${chartH + labelH}` });
-  svg.style.display = 'block';
-  svg.style.marginTop = '8px';
+  const svg = mk('svg', { viewBox: `0 0 ${width} ${chartH + labelH}` });
+  svg.style.cssText = 'display:block;width:100%;height:auto;margin-top:6px';
   days.forEach((d, i) => {
     const h = Math.max(1, (d.billed / maxB) * (chartH - 2));
     const r = mk('rect', { x: padL + i * (bw_ + gap), y: chartH - h, width: bw_, height: h, rx: 2, fill: css('--ctx-2') });
@@ -1083,7 +1099,7 @@ function renderUsage() {
     tip.textContent = d.date + ' — ' + fmtBucket(d);
     r.appendChild(tip);
     svg.appendChild(r);
-    if (i === 0 || i === days.length - 1 || i % 7 === 0) {
+    if (i === days.length - 1 || (i % 7 === 0 && i < days.length - 3)) {
       const lbl = mk('text', { x: padL + i * (bw_ + gap) + bw_ / 2, y: chartH + 11, 'text-anchor': 'middle', fill: css('--text-muted'), 'font-size': 9 });
       lbl.textContent = d.date.slice(5);
       svg.appendChild(lbl);
