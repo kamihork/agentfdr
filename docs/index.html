@@ -185,6 +185,8 @@
       <div class="feat"><div class="ico">📡</div><div class="t" data-i18n="f4t">Live watch mode</div><p data-i18n="f4">agentfdr watch follows a session that's still running — watch the context climb in real time.</p></div>
       <div class="feat"><div class="ico">🚦</div><div class="t" data-i18n="f5t">CI gate</div><p data-i18n="f5">agentfdr assert --no-loops --max-tokens 2M exits 1 on violation. Put a tripwire on your autonomous pipelines.</p></div>
       <div class="feat"><div class="ico">📋</div><div class="t" data-i18n="f6t">Markdown autopsy</div><p data-i18n="f6">agentfdr blame renders the whole analysis as markdown, ready to paste into an issue or a Slack thread.</p></div>
+      <div class="feat"><div class="ico">🔎</div><div class="t" data-i18n="f7t">Full-text search</div><p data-i18n="f7">agentfdr search scans every prompt, reply, tool call and result across all your sessions — and the Search tab jumps straight to the matching turn.</p></div>
+      <div class="feat"><div class="ico">⚖️</div><div class="t" data-i18n="f8t">Session diff</div><p data-i18n="f8">agentfdr diff puts the failed attempt next to the successful retry: stats, anomalies, tool mix, and which files each one touched.</p></div>
     </div>
   </section>
 
@@ -243,8 +245,10 @@ const I18N = {
     f4t: 'Live watch mode', f4: "agentfdr watch follows a session that's still running — watch the context climb in real time.",
     f5t: 'CI gate', f5: 'agentfdr assert --no-loops --max-tokens 2M exits 1 on violation. Put a tripwire on your autonomous pipelines.',
     f6t: 'Markdown autopsy', f6: 'agentfdr blame renders the whole analysis as markdown, ready to paste into an issue or a Slack thread.',
+    f7t: 'Full-text search', f7: 'agentfdr search scans every prompt, reply, tool call and result across all your sessions — and the Search tab jumps straight to the matching turn.',
+    f8t: 'Session diff', f8: 'agentfdr diff puts the failed attempt next to the successful retry: stats, anomalies, tool mix, and which files each one touched.',
     usageH: 'Know what your plan is really burning.',
-    u1: "agentfdr usage aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour window, daily history, and the rolling week — with a per-model breakdown and estimated cost.",
+    u1: "agentfdr usage aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour window, daily history, and the rolling week — with a 12-month activity heatmap, per-model breakdown and estimated cost.",
     u2: "Your plan tier is auto-detected. Set budgets, calibrate them once against Claude Code's /usage screen, and get warning bars before you hit the wall.",
     usageAlt: 'plan usage panel',
     cmdH: 'One command away.',
@@ -274,8 +278,10 @@ const I18N = {
     f4t: 'ライブウォッチ', f4: 'agentfdr watch が実行中のセッションを自動追尾。コンテキストが積み上がる様子をリアルタイムで。',
     f5t: 'CI ゲート', f5: 'agentfdr assert --no-loops --max-tokens 2M が違反時に exit 1。CI に組み込めば、暴走したセッションを自動で検出して止められます。',
     f6t: 'Markdown 解剖レポート', f6: 'agentfdr blame が分析結果を Markdown で出力。issue や Slack スレッドにそのまま貼れます。',
+    f7t: '全文検索', f7: 'agentfdr search が全セッションのプロンプト・応答・ツール呼び出し・結果を横断検索。ビューアの検索タブからは該当ターンへ直接ジャンプできます。',
+    f8t: 'セッション比較', f8: 'agentfdr diff が失敗した試行と成功した再試行を並べて比較。統計・異常・ツール構成・編集ファイルの違いが一目でわかります。',
     usageH: 'プランを何にどれだけ使ったか、正確に。',
-    u1: 'agentfdr usage は全プロジェクトの transcript を、サブスクリプションの計測単位と同じ形に集計します。現在の5時間ウィンドウ、日別履歴、直近7日。モデル別内訳と推定コスト付きです。',
+    u1: 'agentfdr usage は全プロジェクトの transcript を、サブスクリプションの計測単位と同じ形に集計します。現在の5時間ウィンドウ、日別履歴、直近7日。12ヶ月のアクティビティヒートマップ、モデル別内訳と推定コスト付きです。',
     u2: 'プラン種別は自動検出。予算を設定して Claude Code の /usage と一度見比べれば、上限に当たる前に警告バーが教えてくれます。',
     usageAlt: 'プラン使用量パネル',
     cmdH: 'コマンド1つで。',

@@ -40,7 +40,7 @@ That's the whole setup. Your sessions are already recorded — Claude Code write
 - 🔍 **Turn dissection** — resizable side panel with usage breakdown, assistant text, and every tool call's duration, result size, and snippet; step with ←/→
 - 🚨 **Anomaly detection** — tool loops, error streaks, context bloat, token spikes, cache thrash, file churn, and refusals, flagged automatically
 - 📡 **Live watch mode** — `agentfdr watch` follows a session that's still running
-- 📊 **Plan usage** — 5-hour window / daily / weekly burn across all projects, an 18-week activity heatmap, plan-tier auto-detection, and calibratable budgets with warning bars
+- 📊 **Plan usage** — 5-hour window / daily / weekly burn across all projects, a 12-month activity heatmap, plan-tier auto-detection, and calibratable budgets with warning bars
 - 💸 **Cost estimation** — estimated USD per session and per model, from list prices
 - 🚦 **CI gate** — `agentfdr assert --no-loops --max-tokens 2M` exits 1 on violation
 - 📋 **Markdown autopsy** — `agentfdr blame` renders the analysis ready to paste into an issue
@@ -82,9 +82,9 @@ Options: `--port <n>` (auto-falls-back if taken), `--no-browser`, `--json`, `--l
 
 ## The viewer
 
-The **dissection panel** lives on the right (always visible on wide screens; slides in on narrow ones) — click a turn and it fills in, and the timeline stays visible so you can step through turns (**←/→**, **Esc** deselects) without losing your place. Drag the panel's left edge to resize it; the width persists.
+The **dissection panel** lives on the right (always visible on wide screens; slides in on narrow ones) — click a turn and it fills in, and the timeline stays visible so you can step through turns (**←/→**, **Esc** deselects) without losing your place. Drag the panel's left edge to resize it; the width persists. While no turn is selected, the panel shows a **session overview**: the tools that did the work and the most-edited files.
 
-Tabs switch the main view: **Timeline / Turns / Prompts / Usage**; clicking a prompt or an anomaly chip jumps back to the timeline at that turn. Click a tool color in the legend to filter the tools lane. **Copy report** puts the blame markdown on your clipboard; **● LIVE** re-fetches while the session is still running (on automatically via `agentfdr watch`). Language and theme toggles are in the header; everything persists, and any view is deep-linkable (`?theme=dark&tab=usage&sel=95`).
+Tabs switch the main view: **Timeline / Turns / Prompts / Usage / Compare / Search**; clicking a prompt, an anomaly chip, or a search hit jumps back to the timeline at that turn. The filter box in the header narrows the session dropdown across all projects. Click a tool color in the legend to filter the tools lane. **Copy report** puts the blame markdown on your clipboard; **● LIVE** re-fetches while the session is still running (on automatically via `agentfdr watch`). Language and theme toggles are in the header; everything persists, and any view is deep-linkable (`?theme=dark&tab=usage&sel=95`).
 
 **Session readout** — the header line lists every model that produced a turn (with per-model turn counts when the session switched models), the number of fast-mode turns, and the effort level. A caveat on effort: it is not a structured field in the transcript, so it's recovered from `/effort` command output and only appears when the level was set during the session.
 
