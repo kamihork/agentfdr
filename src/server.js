@@ -14,6 +14,7 @@ import { blameReport } from './report.js';
 import { collectUsage } from './usage.js';
 import { parseTokenCount } from './assert.js';
 import { diffSessions } from './diff.js';
+import { buildDocs, searchSessions } from './search.js';
 
 const UI_PATH = join(dirname(fileURLToPath(import.meta.url)), 'ui.html');
 
@@ -47,6 +48,19 @@ function loadSession(file) {
 // world on each call. Keep a separate uncapped cache of just the tiny slice
 // usage needs (per-turn timestamp/model/usage): a few KB per session.
 const usageCache = new Map(); // file -> { mtimeMs, size, lite }
+
+// Same idea for search: compact per-turn text docs, cached by (mtime, size).
+const searchCache = new Map(); // file -> { mtimeMs, size, docs, title }
+
+function loadDocsCached(file) {
+  const st = statSync(file);
+  const hit = searchCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit;
+  const model = parseSessionFile(file);
+  const entry = { mtimeMs: st.mtimeMs, size: st.size, docs: buildDocs(model), title: model.session.title };
+  searchCache.set(file, entry);
+  return entry;
+}
 
 function loadForUsage(file) {
   const st = statSync(file);
@@ -136,8 +150,17 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
       sendJson(res, 200, { ...model, turns, flags, cost, mtimeMs, sizeBytes: size, configPath: serverConfig.path });
       return;
     }
+    if (url.pathname === '/api/search') {
+      const q = (url.searchParams.get('q') ?? '').trim();
+      if (q.length < 2) {
+        sendJson(res, 400, { error: 'query must be at least 2 characters' });
+        return;
+      }
+      sendJson(res, 200, { query: q, results: searchSessions(q, { loadDocs: loadDocsCached }) });
+      return;
+    }
     if (url.pathname === '/api/usage') {
-      const days = Math.min(60, Math.max(1, Number(url.searchParams.get('days')) || 14));
+      const days = Math.min(371, Math.max(1, Number(url.searchParams.get('days')) || 14));
       const usage = collectUsage({ days, loadModel: loadForUsage });
       usage.budgets = {
         fiveHour: parseTokenCount(process.env.AGENTFDR_BUDGET_5H) ?? null,

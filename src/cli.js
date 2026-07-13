@@ -9,6 +9,7 @@ import { runAsserts, parseTokenCount } from './assert.js';
 import { collectUsage, budgetPct } from './usage.js';
 import { diffSessions } from './diff.js';
 import { loadConfig } from './config.js';
+import { searchSessions } from './search.js';
 
 const HELP = `agentfdr — flight data recorder for local coding agents
 
@@ -18,6 +19,7 @@ Usage:
   agentfdr watch [session]      Open the timeline UI in live mode (auto-refresh)
   agentfdr blame [session]      Print a markdown autopsy of a session
   agentfdr diff <a> <b>         Compare two sessions (failed attempt vs retry)
+  agentfdr search <query>       Full-text search across all sessions
   agentfdr stats                Token totals + estimated cost across projects
   agentfdr usage                Plan usage: 5h window / daily / weekly burn, all projects
   agentfdr assert [session]     CI gate: exit 1 if the session violates limits
@@ -122,6 +124,8 @@ export async function main(argv) {
       return cmdBlame(ref, flags.has('--json'), lang, config);
     case 'diff':
       return cmdDiff(ref, positional[2], flags.has('--json'), lang, config);
+    case 'search':
+      return cmdSearch(positional.slice(1).join(' '), flags.has('--json'));
     case 'stats':
       return cmdStats();
     case 'usage':
@@ -188,6 +192,29 @@ function cmdBlame(ref, asJson, lang, config) {
     return;
   }
   console.log(blameReport(model, flags, lang));
+}
+
+function cmdSearch(query, asJson) {
+  if (!query || query.trim().length < 2) {
+    return usageError(['search needs a query of at least 2 characters: agentfdr search <query>']);
+  }
+  const results = searchSessions(query.trim());
+  if (asJson) {
+    console.log(JSON.stringify({ query: query.trim(), results }, null, 2));
+    return;
+  }
+  if (!results.length) {
+    console.log('no matches');
+    return;
+  }
+  for (const r of results) {
+    const when = new Date(r.mtimeMs).toISOString().slice(0, 10);
+    console.log(`\n${r.id.slice(0, 8)}  ${when}  ${r.title ?? '(untitled)'}  [${r.slug}]`);
+    for (const m of r.matches) {
+      console.log(`  t${String(m.t).padStart(3)}  ${m.w.padEnd(9)}  ${m.excerpt}`);
+    }
+  }
+  console.log(`\nopen one with: agentfdr open <id-prefix>`);
 }
 
 function cmdDiff(refA, refB, asJson, lang, config) {
@@ -308,7 +335,7 @@ function cmdUsage(flags, lang) {
   const b5 = strict('--budget-5h', parseTokenCount, process.env.AGENTFDR_BUDGET_5H);
   const bw = strict('--budget-week', parseTokenCount, process.env.AGENTFDR_BUDGET_WEEK);
   if (errors.length) return usageError(errors);
-  const u = collectUsage({ days: Math.min(60, Math.max(1, days)) });
+  const u = collectUsage({ days: Math.min(371, Math.max(1, days)) });
 
   if (flags.has('--json')) {
     console.log(JSON.stringify({ ...u, budgets: { fiveHour: b5, week: bw } }, null, 2));

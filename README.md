@@ -36,10 +36,11 @@ That's the whole setup. Your sessions are already recorded — Claude Code write
 ## Features
 
 - 🛫 **Timeline viewer** — one screen for the whole session: every turn's tool calls, context-window composition, and output tokens, with prompt and compaction markers
+- 🔎 **Full-text search** — `agentfdr search` (and the **Search** tab) finds any prompt, assistant reply, tool call or result across every session, and jumps to the exact turn
 - 🔍 **Turn dissection** — resizable side panel with usage breakdown, assistant text, and every tool call's duration, result size, and snippet; step with ←/→
 - 🚨 **Anomaly detection** — tool loops, error streaks, context bloat, token spikes, cache thrash, file churn, and refusals, flagged automatically
 - 📡 **Live watch mode** — `agentfdr watch` follows a session that's still running
-- 📊 **Plan usage** — 5-hour window / daily / weekly burn across all projects, plan-tier auto-detection, calibratable budgets with warning bars
+- 📊 **Plan usage** — 5-hour window / daily / weekly burn across all projects, an 18-week activity heatmap, plan-tier auto-detection, and calibratable budgets with warning bars
 - 💸 **Cost estimation** — estimated USD per session and per model, from list prices
 - 🚦 **CI gate** — `agentfdr assert --no-loops --max-tokens 2M` exits 1 on violation
 - 📋 **Markdown autopsy** — `agentfdr blame` renders the analysis ready to paste into an issue
@@ -69,6 +70,7 @@ agentfdr open 35cb18        # open a session by id prefix (or path to a .jsonl)
 agentfdr watch              # same, but live: the timeline follows the running session
 agentfdr blame 35cb18       # markdown autopsy — paste it into an issue
 agentfdr diff 35cb18 9af7ec # compare two sessions: failed attempt vs retry
+agentfdr search "login bug" # full-text search across every session
 agentfdr stats              # token totals + estimated cost per project
 agentfdr usage              # plan usage: 5h window / daily / weekly burn
 agentfdr assert --no-loops --max-tokens 2M   # CI gate: exit 1 on violation

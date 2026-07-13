@@ -90,12 +90,31 @@
   header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
   header h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
   header h1 span { color: var(--text-muted); font-weight: 400; }
-  select, button {
+  select, button, input[type="search"] {
     font: inherit; color: var(--text-primary);
     background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 7px; padding: 5px 10px; cursor: pointer;
+    border-radius: 7px; padding: 5px 10px;
   }
-  select { max-width: 480px; }
+  select, button { cursor: pointer; }
+  select { max-width: 440px; }
+  #sessionFilter { width: 130px; }
+
+  /* search results */
+  #searchBody .shead { font-weight: 650; margin: 12px 0 2px; font-size: 13px; }
+  #searchBody .shead .meta2 { color: var(--text-muted); font-weight: 400; font-size: 11.5px; margin-left: 8px; }
+  #searchBody .smatch {
+    display: flex; gap: 10px; align-items: baseline; padding: 3px 0 3px 12px;
+    font-size: 12.5px; cursor: pointer; border-radius: 6px;
+  }
+  #searchBody .smatch:hover { background: var(--wash); }
+  #searchBody .smatch .sturn { flex: none; font-variant-numeric: tabular-nums; color: var(--ctx-2); font-weight: 600; }
+  #searchBody .smatch .skind { flex: none; color: var(--text-muted); font-size: 11px; min-width: 62px; }
+  #searchBody .smatch .sx { color: var(--text-secondary); }
+  #searchBody mark { background: var(--select); color: inherit; border-radius: 3px; padding: 0 2px; }
+
+  /* activity heatmap */
+  #usageBody .heat { margin-top: 10px; }
+  #usageBody .heat text { font-size: 9px; fill: var(--text-muted); }
   button:hover { background: var(--wash); }
   .spacer { flex: 1; }
   #liveToggle.on {
@@ -284,6 +303,7 @@
 <body>
   <header>
     <h1>agentfdr <span data-i18n="subtitle">/ flight recorder</span></h1>
+    <input id="sessionFilter" type="search" aria-label="Filter sessions">
     <select id="sessionSelect" aria-label="Session"></select>
     <div class="spacer"></div>
     <button id="liveToggle" aria-pressed="false"></button>
@@ -308,6 +328,7 @@
       <button data-tab="prompts" role="tab"></button>
       <button data-tab="usage" role="tab"></button>
       <button data-tab="diff" role="tab"></button>
+      <button data-tab="search" role="tab"></button>
     </nav>
 
     <div class="card" id="timelineCard" data-panel="timeline">
@@ -329,6 +350,15 @@
     <div class="card hidden" id="usageCard" data-panel="usage">
       <h2 id="usageTitle"></h2>
       <div id="usageBody"></div>
+    </div>
+
+    <div class="card hidden" id="searchCard" data-panel="search">
+      <h2 id="searchTitle"></h2>
+      <div class="urow" style="margin-bottom:8px">
+        <input id="searchInput" type="search" style="flex:1;max-width:520px">
+        <button id="searchGo"></button>
+      </div>
+      <div id="searchBody"></div>
     </div>
 
     <div class="card hidden" id="diffCard" data-panel="diff">
@@ -368,6 +398,16 @@ const I18N = {
     legendHint: '(click to filter)',
     effortBit: (v) => `effort ${v}`,
     tabTimeline: 'Timeline',
+    tabSearch: 'Search',
+    searchTitle: 'Search all sessions',
+    searchPh: 'prompts, assistant text, tool calls, results… (Enter)',
+    searchGo: 'Search',
+    searchHits: (n, s) => `${n} matches in ${s} session(s)`,
+    searchNone: 'No matches.',
+    searchShort: 'Type at least 2 characters.',
+    sessionFilterPh: 'filter…',
+    kinds: { prompt: 'prompt', assistant: 'assistant', tool: 'tool', result: 'result' },
+    heatTitle: 'Activity — last 18 weeks (billed tokens/day)',
     tabDiff: 'Compare',
     diffTitle: 'Session comparison — A is the current session',
     d: {
@@ -459,6 +499,16 @@ const I18N = {
     legendHint: '(クリックで絞り込み)',
     effortBit: (v) => `effort ${v}`,
     tabTimeline: 'タイムライン',
+    tabSearch: '検索',
+    searchTitle: '全セッション検索',
+    searchPh: 'プロンプト・応答・ツール呼び出し・結果を検索…(Enter)',
+    searchGo: '検索',
+    searchHits: (n, s) => `${s}セッションに${n}件ヒット`,
+    searchNone: '一致なし。',
+    searchShort: '2文字以上入力してください。',
+    sessionFilterPh: '絞り込み…',
+    kinds: { prompt: 'プロンプト', assistant: '応答', tool: 'ツール', result: '結果' },
+    heatTitle: 'アクティビティ — 直近18週(日別課金トークン)',
     tabDiff: '比較',
     diffTitle: 'セッション比較 — A は表示中のセッション',
     d: {
@@ -552,8 +602,45 @@ let SIZE = null;        // transcript size — mtime alone can miss same-granule
 let pollTimer = null;
 let USAGE = null;       // /api/usage payload (fetched when the tab opens)
 let DIFF = null;        // /api/diff payload for the current A/B pair
+let SEARCH = null;      // /api/search payload
+let PROJECTS = [];      // grouped session list from /api/sessions
 let SESSIONLIST = [];   // flat session list for the compare picker
 let TAB = localStorage.getItem('agentfdr.tab') || 'timeline';
+
+/** Rebuild the session selector, optionally filtered by title/id/project. */
+function buildSessionSelect(filter) {
+  const sel = $('sessionSelect');
+  const current = sel.value;
+  const q = (filter ?? '').trim().toLowerCase();
+  sel.textContent = '';
+  for (const p of PROJECTS) {
+    const slugLabel = p.slug.replace(/^-/, '').replace(/-/g, '/');
+    const hits = p.sessions.filter((s) =>
+      !q || (s.title ?? '').toLowerCase().includes(q) || s.id.startsWith(q) || slugLabel.toLowerCase().includes(q)
+    );
+    if (!hits.length) continue;
+    const og = document.createElement('optgroup');
+    og.label = slugLabel;
+    for (const s of hits) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = (s.title || s.id.slice(0, 8)) + ' — ' + new Date(s.mtimeMs).toLocaleString();
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
+  }
+  // never let filtering deselect the session being viewed
+  if (current) {
+    if (![...sel.options].some((o) => o.value === current)) {
+      const s = SESSIONLIST.find((x) => x.id === current);
+      const opt = document.createElement('option');
+      opt.value = current;
+      opt.textContent = (s?.title || current.slice(0, 8)) + ' — ' + (s ? new Date(s.mtimeMs).toLocaleString() : '');
+      sel.insertBefore(opt, sel.firstChild);
+    }
+    sel.value = current;
+  }
+}
 const TOOLFILTER = new Set(); // legend filter: empty = show all tool groups
 
 /** Drag the panel's left edge to resize; width persists across sessions. */
@@ -602,6 +689,77 @@ function switchTab(name) {
   }
   if (name === 'usage') loadUsage(); // refresh on every open — it's cheap (server caches)
   if (name === 'diff') renderDiffPicker();
+  if (name === 'search') $('searchInput').focus();
+}
+
+// ---------- full-text search across sessions ----------
+async function runSearch() {
+  const q = $('searchInput').value.trim();
+  const body = $('searchBody');
+  if (q.length < 2) {
+    body.textContent = T().searchShort;
+    return;
+  }
+  body.textContent = '…';
+  try {
+    const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status);
+    SEARCH = data;
+  } catch (err) {
+    body.textContent = T().loadError(err.message || String(err));
+    return;
+  }
+  renderSearch();
+}
+
+function renderSearch() {
+  const body = $('searchBody');
+  body.textContent = '';
+  if (!SEARCH) return;
+  const { query, results } = SEARCH;
+  const total = results.reduce((a, r) => a + r.matches.length, 0);
+  add(body, 'div', 'upct', results.length ? T().searchHits(total, results.length) : T().searchNone);
+  for (const r of results) {
+    const h = add(body, 'div', 'shead', r.title || r.id.slice(0, 8));
+    add(h, 'span', 'meta2', r.slug.replace(/^-/, '').replace(/-/g, '/') + ' · ' + new Date(r.mtimeMs).toLocaleDateString());
+    for (const m of r.matches) {
+      const row = add(body, 'div', 'smatch');
+      add(row, 'span', 'sturn', 't' + m.t);
+      add(row, 'span', 'skind', T().kinds[m.w] ?? m.w);
+      highlight(add(row, 'span', 'sx'), m.excerpt, query);
+      row.addEventListener('click', () => jumpToMatch(r.id, m.t));
+    }
+  }
+}
+
+function highlight(el, text, q) {
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i === -1) {
+    el.textContent = text;
+    return;
+  }
+  el.appendChild(document.createTextNode(text.slice(0, i)));
+  add(el, 'mark', '', text.slice(i, i + q.length));
+  el.appendChild(document.createTextNode(text.slice(i + q.length)));
+}
+
+/** Open a search hit: switch session if needed, then land on the turn. */
+async function jumpToMatch(id, turn) {
+  const sel = $('sessionSelect');
+  if (sel.value !== id) {
+    if (![...sel.options].some((o) => o.value === id)) {
+      $('sessionFilter').value = '';
+      buildSessionSelect('');
+    }
+    sel.value = id;
+    await load(id);
+  }
+  switchTab('timeline');
+  selectedTurn = Math.min(turn, MODEL.turns.length - 1);
+  renderDetail();
+  updateSelection();
+  scrollToTurn(selectedTurn);
 }
 
 const $ = (id) => document.getElementById(id);
@@ -647,7 +805,7 @@ async function init() {
     document.documentElement.dataset.theme = qp.get('theme');
   }
   if (qp.get('uilang') === 'en' || qp.get('uilang') === 'ja') LANG = qp.get('uilang');
-  if (['timeline', 'table', 'prompts', 'usage', 'diff'].includes(qp.get('tab'))) TAB = qp.get('tab');
+  if (['timeline', 'table', 'prompts', 'usage', 'diff', 'search'].includes(qp.get('tab'))) TAB = qp.get('tab');
 
   $('themeToggle').addEventListener('click', () => {
     const root = document.documentElement;
@@ -664,6 +822,7 @@ async function init() {
     if (MODEL) render();
     if (USAGE) renderUsage();
     if (DIFF) renderDiff();
+    if (SEARCH) renderSearch();
   });
   for (const btn of document.querySelectorAll('#tabs button')) {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -695,24 +854,19 @@ async function init() {
   switchTab(TAB);
 
   const res = await fetch('/api/sessions');
-  const { projects } = await res.json();
+  PROJECTS = (await res.json()).projects;
   const sel = $('sessionSelect');
-  for (const p of projects) {
-    const og = document.createElement('optgroup');
-    og.label = p.slug.replace(/^-/, '').replace(/-/g, '/');
-    for (const s of p.sessions) {
-      const opt = document.createElement('option');
-      opt.value = s.id;
-      opt.textContent = (s.title || s.id.slice(0, 8)) + ' — ' + new Date(s.mtimeMs).toLocaleString();
-      og.appendChild(opt);
-      SESSIONLIST.push({ id: s.id, title: s.title, mtimeMs: s.mtimeMs });
-    }
-    sel.appendChild(og);
+  for (const p of PROJECTS) {
+    for (const s of p.sessions) SESSIONLIST.push({ id: s.id, title: s.title, mtimeMs: s.mtimeMs, slug: p.slug });
   }
+  buildSessionSelect('');
   sel.addEventListener('change', () => load(sel.value));
+  $('sessionFilter').addEventListener('input', () => buildSessionSelect($('sessionFilter').value));
   $('diffSelect').addEventListener('change', loadDiff);
+  $('searchGo').addEventListener('click', runSearch);
+  $('searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
 
-  if (!projects.length) { $('empty').classList.remove('hidden'); return; }
+  if (!PROJECTS.length) { $('empty').classList.remove('hidden'); return; }
   const want = location.hash.slice(1);
   const first = want && [...sel.options].some((o) => o.value === want) ? want : sel.options[0].value;
   sel.value = first;
@@ -780,7 +934,7 @@ const budgetM = (key) => {
 async function loadUsage() {
   $('usageBody').textContent = '…';
   try {
-    const res = await fetch('/api/usage');
+    const res = await fetch('/api/usage?days=126');
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status);
     USAGE = data;
@@ -840,8 +994,41 @@ function renderUsage() {
     brow.appendChild(inp);
   }
 
-  // daily bars (billed tokens, oldest -> newest)
-  const days = USAGE.days;
+  // activity heatmap (GitHub-grass style, 18 weeks)
+  add(body, 'div', 'unote', T().heatTitle);
+  const all = USAGE.days;
+  const cell = 11, cgap = 3;
+  const dow = (ds) => {
+    const [y, m, dd] = ds.split('-').map(Number);
+    return new Date(y, m - 1, dd).getDay();
+  };
+  const firstDow = dow(all[0].date);
+  const weeks = Math.ceil((firstDow + all.length) / 7);
+  const hw = weeks * (cell + cgap) + 4;
+  const hh = 7 * (cell + cgap) + 4;
+  const heat = mk('svg', { viewBox: `0 0 ${hw} ${hh}`, width: hw, height: hh });
+  heat.setAttribute('class', 'heat');
+  const maxHeat = Math.max(1, ...all.map((d) => d.billed));
+  all.forEach((d, i) => {
+    const slot = firstDow + i;
+    const col = Math.floor(slot / 7);
+    const rowY = slot % 7;
+    const active = d.billed > 0;
+    const r = mk('rect', {
+      x: col * (cell + cgap) + 2, y: rowY * (cell + cgap) + 2,
+      width: cell, height: cell, rx: 2.5,
+      fill: active ? css('--out') : css('--wash'),
+      opacity: active ? 0.25 + 0.75 * Math.sqrt(d.billed / maxHeat) : 1,
+    });
+    const tip = mk('title', {});
+    tip.textContent = d.date + ' — ' + kM(d.billed) + ' tok · ~' + fmtUsd(d.usd);
+    r.appendChild(tip);
+    heat.appendChild(r);
+  });
+  body.appendChild(heat);
+
+  // daily bars (billed tokens, last 14 days)
+  const days = USAGE.days.slice(-14);
   const bw_ = 18, gap = 4, chartH = 56, labelH = 14, padL = 4;
   const width = padL + days.length * (bw_ + gap);
   const maxB = Math.max(1, ...days.map((d) => d.billed));
@@ -1006,12 +1193,16 @@ async function copyReport() {
 function applyChrome() {
   document.documentElement.lang = LANG;
   document.querySelector('[data-i18n="subtitle"]').textContent = T().subtitle;
-  const tabLabels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff };
+  const tabLabels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff, search: T().tabSearch };
   for (const btn of document.querySelectorAll('#tabs button')) {
     btn.textContent = tabLabels[btn.dataset.tab];
   }
   $('diffTitle').textContent = T().diffTitle;
   $('diffPickLabel').textContent = T().d.pick;
+  $('searchTitle').textContent = T().searchTitle;
+  $('searchInput').placeholder = T().searchPh;
+  $('searchGo').textContent = T().searchGo;
+  $('sessionFilter').placeholder = T().sessionFilterPh;
   $('copyReport').textContent = T().copyReport;
   $('liveToggle').textContent = T().live;
   $('liveToggle').title = T().liveTitle;
@@ -1060,7 +1251,7 @@ function render() {
 /** Tab labels get lightweight counts so you know what's behind them. */
 function updateTabCounts() {
   const counts = { table: MODEL.turns.length, prompts: MODEL.prompts.length };
-  const labels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff };
+  const labels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff, search: T().tabSearch };
   for (const btn of document.querySelectorAll('#tabs button')) {
     btn.textContent = labels[btn.dataset.tab];
     const c = counts[btn.dataset.tab];
