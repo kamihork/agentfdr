@@ -87,8 +87,8 @@
     max-width: 1400px;
     margin: 0 auto;
   }
-  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
-  header h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  header h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; margin-right: 6px; }
   header h1 span { color: var(--text-muted); font-weight: 400; }
   select, button, input[type="search"] {
     font: inherit; color: var(--text-primary);
@@ -96,8 +96,8 @@
     border-radius: 7px; padding: 5px 10px;
   }
   select, button { cursor: pointer; }
-  select { max-width: 440px; }
-  #sessionFilter { width: 130px; }
+  #sessionSelect { flex: 1; min-width: 200px; max-width: 700px; }
+  #sessionFilter { width: 150px; flex: none; }
 
   /* search results */
   #searchBody .shead { font-weight: 650; margin: 12px 0 2px; font-size: 13px; }
@@ -121,9 +121,17 @@
     color: #fff; background: var(--status-critical); border-color: var(--status-critical);
     font-weight: 600;
   }
-  #metabar { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
-  #meta { color: var(--text-secondary); font-size: 12.5px; flex: 1; min-width: 300px; }
-  #meta .livebadge { color: var(--status-critical); font-weight: 650; }
+  #metabar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  #meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex: 1; min-width: 300px; }
+  .mchip {
+    display: inline-block; border: 1px solid var(--border); border-radius: 999px;
+    background: var(--surface-1); padding: 1px 9px;
+    font-size: 11.5px; color: var(--text-secondary); white-space: nowrap;
+    max-width: 340px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mchip.strong { color: var(--text-primary); font-weight: 600; }
+  #meta .livebadge { color: var(--status-critical); font-weight: 650; font-size: 12px; }
+  @media (min-width: 1200px) { #hint { display: none; } } /* the overview panel shows the same hint */
   #errbar {
     background: var(--surface-1); border: 1px solid var(--status-critical); border-radius: 10px;
     color: var(--status-critical); padding: 10px 14px; margin-bottom: 14px; font-size: 13px;
@@ -134,7 +142,7 @@
     border-radius: 4px; padding: 0 4px; margin: 0 1px;
   }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 8px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 8px; margin-bottom: 8px; }
   .tile {
     position: relative; overflow: hidden;
     background: var(--surface-1); border: 1px solid var(--border); border-radius: 9px;
@@ -154,7 +162,21 @@
   .tile .gauge { height: 5px; border-radius: 3px; background: var(--wash); margin-top: 5px; overflow: hidden; }
   .tile .gauge > div { height: 100%; border-radius: 3px; }
 
-  #flagstrip { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  /* Anomalies live in their own card: count + severity up top, chips collapse
+     to two rows (large sessions produce dozens) with a fade + expand toggle. */
+  #flagCard { padding: 8px 12px 10px; }
+  #flagHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  #flagHead .ft { font-size: 12.5px; font-weight: 650; }
+  #flagHead .fb { font-size: 11.5px; font-weight: 600; }
+  #flagHead .fb.critical { color: var(--status-critical); }
+  #flagHead .fb.warning { color: var(--status-warning); }
+  #flagHead button { font-size: 11.5px; padding: 1px 9px; color: var(--text-secondary); }
+  #flagstrip { display: flex; gap: 6px; flex-wrap: wrap; }
+  #flagstrip.collapsed {
+    max-height: 60px; overflow: hidden;
+    -webkit-mask-image: linear-gradient(#000 62%, transparent);
+    mask-image: linear-gradient(#000 62%, transparent);
+  }
   .flagchip {
     display: inline-flex; align-items: center; gap: 6px;
     background: var(--surface-1); border: 1px solid var(--border);
@@ -171,11 +193,13 @@
   .card h2 { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
 
   /* Tab bar: exactly one main view visible at a time */
-  #tabs { display: flex; gap: 2px; margin-bottom: 8px; border-bottom: 1px solid var(--grid); }
+  #tabs { display: flex; gap: 2px; margin-bottom: 10px; border-bottom: 1px solid var(--grid); overflow-x: auto; }
   #tabs button {
     background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
-    padding: 4px 12px 6px; color: var(--text-secondary); cursor: pointer; font-size: 13px;
+    padding: 7px 13px 8px; color: var(--text-secondary); cursor: pointer; font-size: 13.5px;
+    white-space: nowrap;
   }
+  #tabs .ico { margin-right: 6px; font-size: 13px; }
   #tabs button:hover { color: var(--text-primary); background: var(--wash); }
   #tabs button.active { color: var(--text-primary); border-bottom-color: var(--ctx-2); font-weight: 600; }
   #tabs .count { color: var(--text-muted); font-size: 11px; margin-left: 4px; }
@@ -201,6 +225,16 @@
   body.resizing { cursor: col-resize; user-select: none; }
   body.resizing #detail { transition: none; }
   .dempty { color: var(--text-muted); font-size: 12.5px; text-align: center; padding: 40px 12px; }
+  /* Session overview: what the panel shows while no turn is selected. */
+  .ovtip { color: var(--text-muted); font-size: 12px; background: var(--wash); border-radius: 8px; padding: 8px 10px; }
+  .ov h3 { font-size: 11px; font-weight: 650; color: var(--text-muted); letter-spacing: 0.06em; margin: 18px 0 6px; }
+  .ovrow { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 4px 0; }
+  .ovrow .k { flex: none; width: 11px; height: 11px; border-radius: 3px; }
+  .ovrow .name { flex: none; width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+  .ovrow .bar { flex: 1; height: 7px; border-radius: 4px; background: var(--wash); overflow: hidden; }
+  .ovrow .bar > div { height: 100%; border-radius: 4px; }
+  .ovrow .n { flex: none; min-width: 44px; text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .ovrow.file .name { width: auto; flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
   @media (min-width: 1200px) {
     #detail { transform: none; visibility: visible; }
     /* Two-pane layout: main content flows up to the panel edge — no centered
@@ -305,7 +339,6 @@
     <h1>agentfdr <span data-i18n="subtitle">/ flight recorder</span></h1>
     <input id="sessionFilter" type="search" aria-label="Filter sessions">
     <select id="sessionSelect" aria-label="Session"></select>
-    <div class="spacer"></div>
     <button id="liveToggle" aria-pressed="false"></button>
     <button id="copyReport"></button>
     <button id="langToggle" title="Language / 言語"></button>
@@ -320,7 +353,10 @@
 
   <div id="deck" class="hidden">
     <div class="tiles" id="tiles"></div>
-    <div id="flagstrip"></div>
+    <div class="card hidden" id="flagCard">
+      <div id="flagHead"></div>
+      <div id="flagstrip" class="collapsed"></div>
+    </div>
 
     <nav id="tabs" role="tablist">
       <button data-tab="timeline" role="tab"></button>
@@ -441,6 +477,8 @@ const I18N = {
       estimate: 'list-price estimate', partialEstimate: 'partial — unknown model',
       cacheIo: (r, w) => `read ${r} · write ${w}`,
     },
+    fc: { warning: (n) => `${n} warning`, showAll: (n) => `Show all ${n} ▾`, collapse: 'Collapse ▴' },
+    ov: { tools: 'TOP TOOLS', files: 'MOST-EDITED FILES', count: (n) => '×' + n },
     lanes: { tools: 'TOOLS', ctx: 'CONTEXT TOKENS', out: 'OUTPUT TOKENS' },
     legendGroups: { tools: 'TOOLS', tokens: 'TOKENS' },
     toolGroups: { shell: 'Shell', write: 'Edit/Write', read: 'Read', search: 'Search', agent: 'Subagent', web: 'Web', mcp: 'MCP', other: 'Other' },
@@ -542,6 +580,8 @@ const I18N = {
       estimate: '定価ベースの概算', partialEstimate: '不明モデル分を除く概算',
       cacheIo: (r, w) => `読取 ${r} · 書込 ${w}`,
     },
+    fc: { warning: (n) => `警告 ${n}件`, showAll: (n) => `すべて表示 (${n}) ▾`, collapse: '折りたたむ ▴' },
+    ov: { tools: 'ツール使用 TOP', files: '編集回数の多いファイル', count: (n) => '×' + n },
     lanes: { tools: 'ツール', ctx: 'コンテキストトークン', out: '出力トークン' },
     legendGroups: { tools: 'ツール', tokens: 'トークン' },
     toolGroups: { shell: 'シェル', write: '編集/書込', read: '読取', search: '検索', agent: 'サブエージェント', web: 'Web', mcp: 'MCP', other: 'その他' },
@@ -606,6 +646,7 @@ let SEARCH = null;      // /api/search payload
 let PROJECTS = [];      // grouped session list from /api/sessions
 let SESSIONLIST = [];   // flat session list for the compare picker
 let TAB = localStorage.getItem('agentfdr.tab') || 'timeline';
+const TAB_ICONS = { timeline: '🛫', table: '📋', prompts: '💬', usage: '📊', diff: '⚖️', search: '🔍' };
 
 /** Rebuild the session selector, optionally filtered by title/id/project. */
 function buildSessionSelect(filter) {
@@ -1190,12 +1231,18 @@ async function copyReport() {
 }
 
 /** Static chrome strings (buttons, hints) — everything outside render(). */
+function setTabLabel(btn, label, count) {
+  btn.textContent = '';
+  add(btn, 'span', 'ico', TAB_ICONS[btn.dataset.tab] ?? '');
+  btn.appendChild(document.createTextNode(label));
+  if (count != null) add(btn, 'span', 'count', String(count));
+}
 function applyChrome() {
   document.documentElement.lang = LANG;
   document.querySelector('[data-i18n="subtitle"]').textContent = T().subtitle;
   const tabLabels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff, search: T().tabSearch };
   for (const btn of document.querySelectorAll('#tabs button')) {
-    btn.textContent = tabLabels[btn.dataset.tab];
+    setTabLabel(btn, tabLabels[btn.dataset.tab]);
   }
   $('diffTitle').textContent = T().diffTitle;
   $('diffPickLabel').textContent = T().d.pick;
@@ -1253,9 +1300,7 @@ function updateTabCounts() {
   const counts = { table: MODEL.turns.length, prompts: MODEL.prompts.length };
   const labels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff, search: T().tabSearch };
   for (const btn of document.querySelectorAll('#tabs button')) {
-    btn.textContent = labels[btn.dataset.tab];
-    const c = counts[btn.dataset.tab];
-    if (c != null) add(btn, 'span', 'count', String(c));
+    setTabLabel(btn, labels[btn.dataset.tab], counts[btn.dataset.tab]);
   }
 }
 
@@ -1263,24 +1308,26 @@ function renderMeta() {
   const s = MODEL.session, t = MODEL.totals;
   const el = $('meta');
   el.textContent = '';
-  // All models that produced turns, with counts when the session switched.
+  // Scannable chips instead of one dot-separated line. The session title is
+  // deliberately absent — it's already the selected option in the header.
   const models = (s.models && s.models.length)
-    ? s.models.map((m) => s.models.length > 1 ? m.model + ' ×' + m.turns : m.model).join(' · ')
-    : s.model;
+    ? s.models.map((m) => s.models.length > 1 ? m.model + ' ×' + m.turns : m.model)
+    : (s.model ? [s.model] : []);
   const fastTurns = MODEL.turns.filter((x) => x.speed === 'fast').length;
-  const bits = [
-    s.title, models,
-    fastTurns > 0 && '⚡fast ×' + fastTurns,
-    s.effort && T().effortBit(s.effort),
-    s.cwd && s.cwd + (s.gitBranch ? ' (' + s.gitBranch + ')' : ''),
-    s.startedAt && new Date(s.startedAt).toLocaleString(), t.wallMs != null && fmtMs(t.wallMs),
-    MODEL.configPath && '⚙ ' + MODEL.configPath.split('/').pop(),
+  const chips = [
+    ...models.map((m) => ({ text: m, strong: true })),
+    fastTurns > 0 && { text: '⚡fast ×' + fastTurns },
+    s.effort && { text: T().effortBit(s.effort) },
+    s.cwd && { text: s.cwd + (s.gitBranch ? ' (' + s.gitBranch + ')' : ''), title: s.cwd },
+    s.startedAt && { text: new Date(s.startedAt).toLocaleString() },
+    t.wallMs != null && { text: fmtMs(t.wallMs) },
+    MODEL.configPath && { text: '⚙ ' + MODEL.configPath.split('/').pop(), title: MODEL.configPath },
   ].filter(Boolean);
-  el.textContent = bits.join('  ·  ');
-  if (LIVE) {
-    el.appendChild(document.createTextNode('  ·  '));
-    add(el, 'span', 'livebadge', T().liveBadge(hhmm(Date.now())));
+  for (const c of chips) {
+    const chip = add(el, 'span', 'mchip' + (c.strong ? ' strong' : ''), c.text);
+    if (c.title) chip.title = c.title;
   }
+  if (LIVE) add(el, 'span', 'livebadge', T().liveBadge(hhmm(Date.now())));
 }
 
 /** Grafana-style stat sparkline: a low-opacity area chart hugging the tile bottom. */
@@ -1352,12 +1399,7 @@ function renderTiles() {
       spark: { values: billedCum, color: css('--tool-mcp') },
     });
   }
-  tiles.push({
-    label: L.tiles.flags, value: String(flags.length),
-    valueClass: crit > 0 ? 'crit' : flags.length > 0 ? 'warn' : 'ok',
-    sub: crit ? L.subs.critical(crit) : L.subs.noneCritical, subBad: crit > 0,
-  });
-
+  // Anomalies have their own card below the tiles — no tile for them.
   const wrap = $('tiles');
   wrap.textContent = '';
   for (const tl of tiles) {
@@ -1380,9 +1422,35 @@ function renderTiles() {
   }
 }
 
+let FLAGS_OPEN = false; // chips expanded past the two-row collapse
 function renderFlags() {
+  const cardEl = $('flagCard');
+  const head = $('flagHead');
   const wrap = $('flagstrip');
+  head.textContent = '';
   wrap.textContent = '';
+  const flags = MODEL.flags;
+  if (!flags.length) {
+    cardEl.classList.add('hidden');
+    return;
+  }
+  cardEl.classList.remove('hidden');
+
+  const crit = flags.filter((f) => f.severity === 'critical').length;
+  add(head, 'span', 'ft', T().tiles.flags + ' — ' + flags.length);
+  if (crit) add(head, 'span', 'fb critical', '● ' + T().subs.critical(crit));
+  if (flags.length - crit) add(head, 'span', 'fb warning', '▲ ' + T().fc.warning(flags.length - crit));
+  const sp = add(head, 'span', '');
+  sp.style.flex = '1';
+  const toggle = document.createElement('button');
+  head.appendChild(toggle);
+  const sync = () => {
+    wrap.classList.toggle('collapsed', !FLAGS_OPEN);
+    toggle.textContent = FLAGS_OPEN ? T().fc.collapse : T().fc.showAll(flags.length);
+  };
+  toggle.addEventListener('click', () => { FLAGS_OPEN = !FLAGS_OPEN; sync(); });
+  sync();
+
   MODEL.flags.forEach((f, fi) => {
     const chip = document.createElement('button');
     chip.className = 'flagchip ' + f.severity;
@@ -1401,6 +1469,14 @@ function renderFlags() {
       chip.classList.add('active');
     });
     wrap.appendChild(chip);
+  });
+
+  // When everything already fits in two rows there is nothing to expand.
+  requestAnimationFrame(() => {
+    if (!FLAGS_OPEN && wrap.scrollHeight <= wrap.clientHeight + 4) {
+      toggle.classList.add('hidden');
+      wrap.classList.remove('collapsed');
+    }
   });
 }
 
@@ -1774,9 +1850,9 @@ function renderDetail() {
   const card = $('detailBody');
   const L = T();
   if (selectedTurn == null || !MODEL.turns[selectedTurn]) {
-    panel.classList.remove('open'); // narrow screens: slide away; wide: stays with empty state
+    panel.classList.remove('open'); // narrow screens: slide away; wide: shows the session overview
     card.textContent = '';
-    add(card, 'div', 'dempty', L.detail.empty);
+    renderOverview(card);
     return;
   }
   const t = MODEL.turns[selectedTurn];
@@ -1857,6 +1933,46 @@ function renderDetail() {
       table.appendChild(tr);
     }
     card.appendChild(table);
+  }
+}
+
+/** Empty-state of the dissection panel: a session overview instead of dead space. */
+function renderOverview(card) {
+  const L = T();
+  const ov = add(card, 'div', 'ov');
+  add(ov, 'div', 'ovtip').innerHTML = L.hint; // trusted constant, contains <kbd>
+
+  // Which tools did the work?
+  const counts = new Map();
+  for (const t of MODEL.turns) for (const c of t.toolCalls) counts.set(c.name, (counts.get(c.name) || 0) + 1);
+  const tools = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  if (tools.length) {
+    add(ov, 'h3', '', L.ov.tools);
+    const max = tools[0][1];
+    for (const [name, n] of tools) {
+      const r = add(ov, 'div', 'ovrow');
+      add(r, 'span', 'k').style.background = groupColor(toolGroup(name));
+      add(r, 'span', 'name', name).title = name;
+      const fill = add(add(r, 'div', 'bar'), 'div', '');
+      fill.style.width = Math.max(3, Math.round((n / max) * 100)) + '%';
+      fill.style.background = groupColor(toolGroup(name));
+      add(r, 'span', 'n', L.ov.count(n));
+    }
+  }
+
+  // Which files got hammered? (Edit/Write summaries are the file path.)
+  const files = new Map();
+  for (const t of MODEL.turns) for (const c of t.toolCalls) {
+    if (toolGroup(c.name) === 'write' && c.summary) files.set(c.summary, (files.get(c.summary) || 0) + 1);
+  }
+  const top = [...files.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  if (top.length) {
+    add(ov, 'h3', '', L.ov.files);
+    for (const [path, n] of top) {
+      const r = add(ov, 'div', 'ovrow file');
+      add(r, 'span', 'name', path.split('/').slice(-2).join('/')).title = path;
+      add(r, 'span', 'n', L.ov.count(n));
+    }
   }
 }
 
