@@ -127,6 +127,9 @@
   .cmds .c { color: var(--muted); }
   .cmds .k { color: var(--blue); font-weight: 600; }
 
+  .starhist { display: block; margin-top: 34px; }
+  .starhist img { display: block; width: 100%; max-width: 760px; margin: 0 auto; }
+
   footer {
     margin-top: 88px; border-top: 1px solid var(--grid); padding: 30px 0 48px;
     color: var(--muted); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
@@ -212,6 +215,19 @@
 <span class="k">agentfdr</span> assert --no-loops --max-tokens 2M   <span class="c" data-i18n="c6"># CI gate</span></pre></div>
   </section>
 
+  <!-- Hidden automatically if star-history.com can't render the chart —
+       a broken-image icon is worse than no section. -->
+  <section id="starSection">
+    <h2 class="sec" data-i18n="starH">Star history</h2>
+    <a class="starhist" href="https://www.star-history.com/#kamihork/agentfdr&Date">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date&theme=dark">
+        <img alt="Star history chart" src="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date" loading="lazy"
+             onerror="document.getElementById('starSection').style.display='none'">
+      </picture>
+    </a>
+  </section>
+
   <footer>
     <span>MIT © <a href="https://github.com/kamihork">kamihork</a></span>
     <span class="spacer"></span>
@@ -255,6 +271,7 @@ const I18N = {
     c1: "# open the newest session's timeline", c2: '# all recorded sessions across projects',
     c3: '# live: follow the running session', c4: '# markdown autopsy for an issue',
     c5: '# plan burn: 5h window / daily / weekly', c6: '# CI gate',
+    starH: 'Star history',
     langBtn: '日本語', htmlLang: 'en',
   },
   ja: {
@@ -288,6 +305,7 @@ const I18N = {
     c1: '# 最新セッションのタイムラインを開く', c2: '# 全プロジェクトのセッション一覧',
     c3: '# ライブ: 実行中セッションを追尾', c4: '# issue に貼れる Markdown 解剖レポート',
     c5: '# プラン消費: 5hウィンドウ/日別/週', c6: '# CI ゲート',
+    starH: 'Star History',
     langBtn: 'EN', htmlLang: 'ja',
   },
 };
