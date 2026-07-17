@@ -155,7 +155,8 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 - [x] Session diff — compare the failed attempt with the successful retry
 - [x] Pluggable detector rules — thresholds, suppressions and custom regex rules via `.agentfdr.json`
 - [x] Codex CLI adapter — rollouts under `~/.codex/sessions` are auto-discovered
-- [ ] Convergence-aware loop detection (is the retry making progress?)
+- [ ] Loop-detector precision: treat interleaved edit→test cycles as work, ship default suppressions for common retry idioms
+- [ ] Convergence annotation on loops (worded as a hint, never an all-clear) — after the false-positive rate is boring
 - [ ] Intent-drift detection — flag the turn where the tool/file footprint diverges from what the prompt asked for
 - [ ] More agents (Gemini CLI, OpenHands, Aider) behind the same adapter seam
 - [ ] Subagent/sidechain tree rendering
