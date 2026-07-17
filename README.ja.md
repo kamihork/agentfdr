@@ -173,15 +173,6 @@ node bin/agentfdr.js     # ソースから CLI を実行
 
 コントリビューション歓迎です。特に他エージェントのアダプタと新しい検知ヒューリスティック。[CONTRIBUTING.md](CONTRIBUTING.md) をどうぞ。
 
-## Star History
-
-<a href="https://www.star-history.com/#kamihork/agentfdr&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date&theme=dark">
-    <img alt="Star History チャート" src="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date">
-  </picture>
-</a>
-
 ## ライセンス
 
 [MIT](LICENSE) © [kamihork](https://github.com/kamihork)
