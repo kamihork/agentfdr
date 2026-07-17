@@ -1,5 +1,6 @@
-import { listProjects, resolveSession, projectsRoot } from './discover.js';
-import { parseSessionFile, probeTitle } from './parser.js';
+import { listAllProjects, resolveSession, projectsRoot } from './discover.js';
+import { probeTitle } from './parser.js';
+import { parseAnySessionFile, probeCodexTitle } from './codex.js';
 import { detect } from './detect.js';
 import { blameReport, fmtMs } from './report.js';
 import { startServer, openInBrowser } from './server.js';
@@ -50,7 +51,8 @@ Usage options:
                       Exact plan limits are not published: calibrate these
                       against Claude Code's /usage screen.
 
-Data source: ~/.claude/projects (override with AGENTFDR_CLAUDE_DIR)`;
+Data sources: ~/.claude/projects (AGENTFDR_CLAUDE_DIR) and, when present,
+              ~/.codex/sessions (AGENTFDR_CODEX_DIR)`;
 
 const VALUE_FLAGS = ['--port', '--lang', '--max-errors', '--max-turns', '--max-tokens', '--max-cost', '--days', '--budget-5h', '--budget-week', '--config'];
 const BOOL_FLAGS = ['--no-browser', '--json', '--no-loops', '--no-critical', '--help'];
@@ -151,7 +153,7 @@ function usageError(errors) {
 
 function cmdList(asJson, lang) {
   const s = t(lang);
-  const projects = listProjects();
+  const projects = listAllProjects();
   if (asJson) {
     console.log(JSON.stringify(projects, null, 2));
     return;
@@ -163,7 +165,7 @@ function cmdList(asJson, lang) {
   for (const p of projects) {
     console.log(`\n${p.slug}`);
     for (const sess of p.sessions.slice(0, 10)) {
-      const title = probeTitle(sess.file) ?? s.untitled;
+      const title = (p.agent === 'codex' ? probeCodexTitle(sess.file) : probeTitle(sess.file)) ?? s.untitled;
       const when = new Date(sess.mtimeMs).toISOString().slice(0, 16).replace('T', ' ');
       const mb = (sess.size / 1024 / 1024).toFixed(1);
       console.log(`  ${sess.id.slice(0, 8)}  ${when}  ${mb.padStart(5)}MB  ${title}`);
@@ -184,7 +186,7 @@ async function cmdOpen(ref, port, browse, live, config) {
 
 function cmdBlame(ref, asJson, lang, config) {
   const { file } = resolveSession(ref);
-  const model = parseSessionFile(file);
+  const model = parseAnySessionFile(file);
   const flags = detect(model, config);
   if (asJson) {
     const cost = estimateSessionCost(model);
@@ -222,7 +224,7 @@ function cmdDiff(refA, refB, asJson, lang, config) {
   if (!refA || !refB) return usageError(['diff needs two session refs: agentfdr diff <a> <b>']);
   const load = (ref) => {
     const { file } = resolveSession(ref);
-    const model = parseSessionFile(file);
+    const model = parseAnySessionFile(file);
     return { model, flags: detect(model, config) };
   };
   const d = diffSessions(load(refA), load(refB));
@@ -292,7 +294,7 @@ function cmdAssert(ref, flags, config) {
   if (errors.length) return usageError(errors);
 
   const { file, id } = resolveSession(ref);
-  const model = parseSessionFile(file);
+  const model = parseAnySessionFile(file);
   const detected = detect(model, config);
   const result = runAsserts(model, detected, opts);
   const asJson = flags.has('--json');
@@ -378,7 +380,7 @@ function cmdUsage(flags, lang) {
 }
 
 function cmdStats() {
-  const projects = listProjects();
+  const projects = listAllProjects();
   let grand = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, sessions: 0, wallMs: 0, usd: 0 };
   const k = (n) => `${Math.round(n / 1000)}k`;
   for (const p of projects) {
@@ -388,7 +390,7 @@ function cmdStats() {
     for (const s of p.sessions) {
       let model;
       try {
-        model = parseSessionFile(s.file);
+        model = parseAnySessionFile(s.file);
       } catch {
         continue;
       }

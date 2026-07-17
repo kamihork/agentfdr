@@ -468,7 +468,7 @@ const I18N = {
     },
     timeline: (n) => `Timeline — ${n} turns`,
     turnsTable: 'Turns',
-    empty: 'No sessions found under ~/.claude/projects.',
+    empty: 'No sessions found under ~/.claude/projects or ~/.codex/sessions.',
     hint: 'click a turn to dissect · <kbd>←</kbd><kbd>→</kbd> move · <kbd>Esc</kbd> close',
     tiles: { turns: 'Turns', calls: 'Tool calls', out: 'Output tokens', peak: 'Context peak', cache: 'Cache hit rate', cost: 'Est. cost', flags: 'Anomalies' },
     subs: {
@@ -572,7 +572,7 @@ const I18N = {
     },
     timeline: (n) => `タイムライン — ${n}ターン`,
     turnsTable: 'ターン一覧',
-    empty: '~/.claude/projects にセッションが見つかりません。',
+    empty: '~/.claude/projects にも ~/.codex/sessions にもセッションが見つかりません。',
     hint: 'ターンをクリックで解剖 · <kbd>←</kbd><kbd>→</kbd> 移動 · <kbd>Esc</kbd> 閉じる',
     tiles: { turns: 'ターン数', calls: 'ツール呼び出し', out: '出力トークン', peak: 'コンテキスト最大', cache: 'キャッシュ効率', cost: '推定コスト', flags: '異常検知' },
     subs: {
@@ -809,13 +809,14 @@ const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 // Fixed tool-group order — identity follows the tool, never its rank.
+// Covers both Claude Code tool names and Codex CLI call names.
 const TOOL_GROUPS = [
-  ['shell',  (n) => /^(Bash|BashOutput|KillShell)$/.test(n)],
-  ['write',  (n) => /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(n)],
-  ['read',   (n) => n === 'Read'],
-  ['search', (n) => /^(Grep|Glob|LS)$/.test(n)],
+  ['shell',  (n) => /^(Bash|BashOutput|KillShell|shell|local_shell|exec_command)$/.test(n)],
+  ['write',  (n) => /^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$/.test(n)],
+  ['read',   (n) => /^(Read|read_file|view_image)$/.test(n)],
+  ['search', (n) => /^(Grep|Glob|LS|grep|find|list_dir)$/.test(n)],
   ['agent',  (n) => /^(Task|Agent|Skill|Workflow|SendMessage)$/.test(n)],
-  ['web',    (n) => /^(WebFetch|WebSearch)$/.test(n)],
+  ['web',    (n) => /^(WebFetch|WebSearch|web_search|browser_.*)$/.test(n)],
   ['mcp',    (n) => n.startsWith('mcp__')],
 ];
 function toolGroup(name) {
@@ -1331,6 +1332,7 @@ function renderMeta() {
     : (s.model ? [s.model] : []);
   const fastTurns = MODEL.turns.filter((x) => x.speed === 'fast').length;
   const chips = [
+    s.agent === 'codex' && { text: 'Codex CLI', strong: true },
     ...models.map((m) => ({ text: m, strong: true })),
     fastTurns > 0 && { text: '⚡fast ×' + fastTurns },
     s.effort && { text: T().effortBit(s.effort) },

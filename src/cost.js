@@ -15,6 +15,16 @@ const PRICE_TABLE = [
   [/haiku-4/, { in: 1, out: 5 }],
   [/3-5-haiku/, { in: 0.8, out: 4 }],
   [/haiku/, { in: 0.25, out: 1.25 }],
+  // OpenAI models seen in Codex CLI rollouts. OpenAI bills cached input at
+  // 0.1–0.25× and never bills cache writes (Codex reports writes as 0, so the
+  // write multiplier is moot); the shared 0.1× read multiplier is exact for
+  // gpt-5 and a mild underestimate for the others.
+  [/gpt-5/, { in: 1.25, out: 10 }],
+  [/codex-mini/, { in: 1.5, out: 6 }],
+  [/o4-mini/, { in: 1.1, out: 4.4 }],
+  [/^o3|[^a-z]o3\b/, { in: 2, out: 8 }],
+  [/gpt-4\.1/, { in: 2, out: 8 }],
+  [/gpt-4o/, { in: 2.5, out: 10 }],
 ];
 
 const CACHE_READ_MULT = 0.1;

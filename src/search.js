@@ -4,8 +4,8 @@
 // No index database: sessions are parsed once into compact per-turn docs and
 // cached by (mtime, size) by the caller. Case-insensitive substring match.
 
-import { listProjects } from './discover.js';
-import { parseSessionFile } from './parser.js';
+import { listAllProjects } from './discover.js';
+import { parseAnySessionFile } from './codex.js';
 
 const DOC_TEXT_CAP = 4000; // per-entry cap keeps the doc cache small
 const PER_SESSION_CAP = 5;
@@ -57,11 +57,11 @@ function excerpt(s, idx, len) {
  */
 export function searchSessions(query, { root, loadDocs } = {}) {
   const load = loadDocs ?? ((file) => {
-    const model = parseSessionFile(file);
+    const model = parseAnySessionFile(file);
     return { docs: buildDocs(model), title: model.session.title };
   });
   const results = [];
-  const sessions = listProjects(root)
+  const sessions = listAllProjects({ claudeRoot: root })
     .flatMap((p) => p.sessions.map((s) => ({ ...s, slug: p.slug })))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
   for (const s of sessions) {

@@ -372,7 +372,7 @@ export function toolSignature(call) {
   return `${call.name}:${typeof target === 'string' ? target : ''}`;
 }
 
-function computeTotals(turns, metaEvents, session, parseErrors) {
+export function computeTotals(turns, metaEvents, session, parseErrors) {
   const tokens = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
   let toolCalls = 0;
   let toolErrors = 0;

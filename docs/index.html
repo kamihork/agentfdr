@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>agentfdr — flight data recorder for local coding agents</title>
-<meta name="description" content="When Claude Code loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact. Zero instrumentation, local-first.">
+<meta name="description" content="When Claude Code or Codex CLI loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact. Zero instrumentation, local-first.">
 <meta property="og:title" content="agentfdr — flight data recorder for local coding agents">
-<meta property="og:description" content="Dissect why Claude Code looped, drifted, or burned tokens. npx agentfdr — zero instrumentation, zero cloud, zero config.">
+<meta property="og:description" content="Dissect why Claude Code or Codex looped, drifted, or burned tokens. npx agentfdr — zero instrumentation, zero cloud, zero config.">
 <meta property="og:image" content="https://kamihork.github.io/agentfdr/assets/social-preview.png">
 <meta property="og:url" content="https://kamihork.github.io/agentfdr/">
 <meta name="twitter:card" content="summary_large_image">
@@ -149,13 +149,13 @@
   <header class="hero">
     <img class="mark" src="assets/logo.png" alt="agentfdr logo">
     <h1 data-i18n="h1">The <em>black box</em> for your coding agent.</h1>
-    <p class="sub" data-i18n="sub">When Claude Code loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact.</p>
+    <p class="sub" data-i18n="sub">When Claude Code or Codex CLI loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact.</p>
     <div class="install mono"><span class="dollar">$</span><span id="cmd">npx agentfdr</span><button id="copy" data-i18n="copy">Copy</button></div>
     <div class="ctas">
       <a class="btn primary" href="https://github.com/kamihork/agentfdr" data-i18n="ctaGh">View on GitHub</a>
       <a class="btn ghost" href="https://github.com/kamihork/agentfdr/blob/main/README.ja.md" id="ctaDocs" data-i18n="ctaDocs">README</a>
     </div>
-    <p class="zeroes" data-i18n="zeroes"><b>Zero instrumentation</b> · <b>zero cloud</b> · <b>zero config</b> — it reads the transcripts Claude Code already writes.</p>
+    <p class="zeroes" data-i18n="zeroes"><b>Zero instrumentation</b> · <b>zero cloud</b> · <b>zero config</b> — it reads the transcripts Claude Code and Codex already write.</p>
     <div class="shot">
       <picture>
         <source media="(prefers-color-scheme: light)" srcset="assets/screenshot-light.png">
@@ -226,10 +226,10 @@
 const I18N = {
   en: {
     h1raw: 'The <em>black box</em> for your coding agent.',
-    sub: 'When Claude Code loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact.',
+    sub: 'When Claude Code or Codex CLI loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact.',
     copy: 'Copy', copied: '✓ Copied',
     ctaGh: 'View on GitHub', ctaDocs: 'README',
-    zeroesraw: '<b>Zero instrumentation</b> · <b>zero cloud</b> · <b>zero config</b> — it reads the transcripts Claude Code already writes.',
+    zeroesraw: '<b>Zero instrumentation</b> · <b>zero cloud</b> · <b>zero config</b> — it reads the transcripts Claude Code and Codex already write.',
     shotAlt: 'agentfdr timeline of a real 200-turn session',
     whyH: 'The evidence is gone by the time you notice.',
     whyLead: 'Autonomous agent failures are hard to debug — unless someone kept the flight recording.',
@@ -259,10 +259,10 @@ const I18N = {
   },
   ja: {
     h1raw: 'コーディングエージェントの<br><em>ブラックボックス</em>。',
-    sub: 'Claude Code がループした。ゴールから逸れた。気づけば200万トークンが溶けていた。agentfdr はその「なぜ」を、後からターン単位で解剖できるツールです。',
+    sub: 'Claude Code や Codex CLI がループした。ゴールから逸れた。気づけば200万トークンが溶けていた。agentfdr はその「なぜ」を、後からターン単位で解剖できるツールです。',
     copy: 'コピー', copied: '✓ コピーしました',
     ctaGh: 'GitHub で見る', ctaDocs: '日本語 README',
-    zeroesraw: '<b>計装ゼロ</b> · <b>クラウドゼロ</b> · <b>設定ゼロ</b> — Claude Code が既に書き出している transcript を読むだけ。',
+    zeroesraw: '<b>計装ゼロ</b> · <b>クラウドゼロ</b> · <b>設定ゼロ</b> — Claude Code や Codex が既に書き出している transcript を読むだけ。',
     shotAlt: '実際の200ターンセッションの agentfdr タイムライン',
     whyH: '気づいた時には、証拠は流れてしまっている。',
     whyLead: '自律エージェントの不具合はデバッグが難しい。飛行記録が残っていなければ。',

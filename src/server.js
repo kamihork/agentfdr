@@ -6,8 +6,9 @@ import { readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { listProjects, resolveSession } from './discover.js';
-import { parseSessionFile, probeTitle } from './parser.js';
+import { listAllProjects, resolveSession } from './discover.js';
+import { probeTitle } from './parser.js';
+import { parseAnySessionFile, probeCodexTitle } from './codex.js';
 import { detect } from './detect.js';
 import { estimateSessionCost } from './cost.js';
 import { blameReport } from './report.js';
@@ -33,7 +34,7 @@ function loadSession(file) {
     parseCache.set(file, hit);
     return hit;
   }
-  const model = parseSessionFile(file);
+  const model = parseAnySessionFile(file);
   const flags = detect(model, serverConfig);
   const cost = estimateSessionCost(model);
   const entry = { mtimeMs: st.mtimeMs, size: st.size, model, flags, cost };
@@ -56,7 +57,7 @@ function loadDocsCached(file) {
   const st = statSync(file);
   const hit = searchCache.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit;
-  const model = parseSessionFile(file);
+  const model = parseAnySessionFile(file);
   const entry = { mtimeMs: st.mtimeMs, size: st.size, docs: buildDocs(model), title: model.session.title };
   searchCache.set(file, entry);
   return entry;
@@ -66,7 +67,7 @@ function loadForUsage(file) {
   const st = statSync(file);
   const hit = usageCache.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.lite;
-  const model = parseSessionFile(file);
+  const model = parseAnySessionFile(file);
   const lite = {
     session: { model: model.session.model },
     turns: model.turns.map((t) => ({ timestamp: t.timestamp, model: t.model, usage: t.usage })),
@@ -116,13 +117,14 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
       return;
     }
     if (url.pathname === '/api/sessions') {
-      const projects = listProjects().map((p) => ({
+      const projects = listAllProjects().map((p) => ({
         slug: p.slug,
+        agent: p.agent,
         sessions: p.sessions.slice(0, 20).map((s) => ({
           id: s.id,
           mtimeMs: s.mtimeMs,
           size: s.size,
-          title: probeTitle(s.file),
+          title: p.agent === 'codex' ? probeCodexTitle(s.file) : probeTitle(s.file),
         })),
       }));
       sendJson(res, 200, { projects });

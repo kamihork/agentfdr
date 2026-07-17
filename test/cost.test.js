@@ -9,7 +9,9 @@ test('priceFor matches model families', () => {
   assert.deepEqual(priceFor('claude-opus-4-1-20250805'), { in: 15, out: 75 });
   assert.deepEqual(priceFor('claude-sonnet-4-6'), { in: 3, out: 15 });
   assert.deepEqual(priceFor('claude-haiku-4-5-20251001'), { in: 1, out: 5 });
-  assert.equal(priceFor('gpt-4o'), null);
+  assert.deepEqual(priceFor('gpt-5-codex'), { in: 1.25, out: 10 }); // Codex CLI models
+  assert.deepEqual(priceFor('gpt-4o'), { in: 2.5, out: 10 });
+  assert.equal(priceFor('some-local-model'), null);
   assert.equal(priceFor(null), null);
 });
 

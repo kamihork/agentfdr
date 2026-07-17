@@ -4,7 +4,7 @@
   <h1>agentfdr</h1>
 
   <p><strong>Flight data recorder for local coding agents.</strong><br>
-  When Claude Code loops, drifts off-goal, or quietly burns two million tokens,<br><code>agentfdr</code> shows you <em>why</em> — turn by turn, after the fact.</p>
+  When Claude Code or Codex CLI loops, drifts off-goal, or quietly burns two million tokens,<br><code>agentfdr</code> shows you <em>why</em> — turn by turn, after the fact.</p>
 
   <p>
     <a href="https://www.npmjs.com/package/agentfdr"><img src="https://img.shields.io/npm/v/agentfdr?color=f4511e&label=npm" alt="npm version"></a>
@@ -27,7 +27,7 @@
 npx agentfdr
 ```
 
-That's the whole setup. Your sessions are already recorded — Claude Code writes a full transcript of every session to `~/.claude/projects/`. `agentfdr` reads those transcripts and turns them into something a human can investigate.
+That's the whole setup. Your sessions are already recorded — Claude Code writes a full transcript of every session to `~/.claude/projects/`, and OpenAI's Codex CLI records rollouts to `~/.codex/sessions/`. `agentfdr` auto-discovers both and turns them into something a human can investigate.
 
 **Zero instrumentation. Zero cloud. Zero config.** Nothing is sent anywhere; the viewer binds to `127.0.0.1` and reads files you already have.
 
@@ -36,6 +36,7 @@ That's the whole setup. Your sessions are already recorded — Claude Code write
 ## Features
 
 - 🛫 **Timeline viewer** — one screen for the whole session: every turn's tool calls, context-window composition, and output tokens, with prompt and compaction markers
+- 🤝 **Two agents, one cockpit** — Claude Code and OpenAI Codex CLI sessions, auto-discovered and investigated with the same timeline, detectors, search, and diff
 - 🔎 **Full-text search** — `agentfdr search` (and the **Search** tab) finds any prompt, assistant reply, tool call or result across every session, and jumps to the exact turn
 - 🔍 **Turn dissection** — resizable side panel with usage breakdown, assistant text, and every tool call's duration, result size, and snippet; step with ←/→
 - 🚨 **Anomaly detection** — tool loops, error streaks, context bloat, token spikes, cache thrash, file churn, and refusals, flagged automatically
@@ -134,9 +135,9 @@ All detectors are tunable via `.agentfdr.json` (looked up as `--config <path>` �
 
 ## How it works
 
-Claude Code appends every event of a session — user prompts, assistant messages with full token usage, tool calls, tool results, compaction, mode changes — to a JSONL transcript under `~/.claude/projects/<project>/<session-id>.jsonl`. `agentfdr` parses that into a normalized turn model and runs the detectors over it. That's it: no daemon, no database, no runtime dependencies (Node ≥18 standard library only).
+Claude Code appends every event of a session — user prompts, assistant messages with full token usage, tool calls, tool results, compaction, mode changes — to a JSONL transcript under `~/.claude/projects/<project>/<session-id>.jsonl`. Codex CLI does the same with rollout files under `~/.codex/sessions/YYYY/MM/DD/`. `agentfdr` sniffs the format per file, parses both into one normalized turn model, and runs the same detectors over it. That's it: no daemon, no database, no runtime dependencies (Node ≥18 standard library only).
 
-The transcript format is not a published API, so the parser is written to survive it: unknown line types become meta events, malformed lines are counted and skipped, and schema changes are contained in one adapter module.
+Neither transcript format is a published API, so the parsers are written to survive them: unknown line types become meta events, malformed lines are counted and skipped, and each format's quirks are contained in its own adapter module. Data locations can be overridden with `AGENTFDR_CLAUDE_DIR` / `AGENTFDR_CODEX_DIR`. (Plan usage tracks your Claude subscription and stays Claude-only.)
 
 ## Privacy
 
@@ -153,8 +154,9 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 - [x] Cost estimation from per-model list prices
 - [x] Session diff — compare the failed attempt with the successful retry
 - [x] Pluggable detector rules — thresholds, suppressions and custom regex rules via `.agentfdr.json`
+- [x] Codex CLI adapter — rollouts under `~/.codex/sessions` are auto-discovered
 - [ ] Convergence-aware loop detection (is the retry making progress?)
-- [ ] Adapters for other agents (Codex CLI, Gemini CLI, OpenHands, Aider) behind a common event schema
+- [ ] More agents (Gemini CLI, OpenHands, Aider) behind the same adapter seam
 - [ ] Subagent/sidechain tree rendering
 
 ## Development
