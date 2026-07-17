@@ -97,7 +97,24 @@
   }
   select, button { cursor: pointer; }
   #sessionSelect { flex: 1; min-width: 200px; max-width: 700px; }
-  #sessionFilter { width: 150px; flex: none; }
+  #filterwrap { position: relative; flex: none; }
+  #sessionFilter { width: 150px; }
+  /* Quick-open results under the filter box: typing must produce something
+     visible — narrowing a closed <select> reads as "the box does nothing". */
+  #filterList {
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+    min-width: 360px; max-width: 480px; max-height: 320px; overflow-y: auto;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 10px 32px rgba(0, 0, 0, 0.25); padding: 4px;
+  }
+  #filterList .fitem {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: none; border: none; border-radius: 6px; padding: 5px 9px; font: inherit;
+  }
+  #filterList .fitem:hover, #filterList .fitem.active { background: var(--wash); }
+  #filterList .fitem .ft { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #filterList .fitem .fm { color: var(--text-muted); font-size: 11px; }
+  #filterList .fnone { color: var(--text-muted); font-size: 12px; padding: 6px 9px; }
 
   /* search results */
   #searchBody .shead { font-weight: 650; margin: 12px 0 2px; font-size: 13px; }
@@ -336,8 +353,11 @@
 </head>
 <body>
   <header>
-    <h1>agentfdr <span data-i18n="subtitle">/ flight recorder</span></h1>
-    <input id="sessionFilter" type="search" aria-label="Filter sessions">
+    <h1>agentfdr</h1>
+    <span id="filterwrap">
+      <input id="sessionFilter" type="search" aria-label="Filter sessions" autocomplete="off">
+      <div id="filterList" class="hidden" role="listbox"></div>
+    </span>
     <select id="sessionSelect" aria-label="Session"></select>
     <button id="liveToggle" aria-pressed="false"></button>
     <button id="copyReport"></button>
@@ -420,7 +440,6 @@
 // ---------- i18n ----------
 const I18N = {
   en: {
-    subtitle: '/ flight recorder',
     tableView: 'Table view',
     promptsView: 'Prompts',
     promptsTitle: (n) => `Prompts — ${n}`,
@@ -524,7 +543,6 @@ const I18N = {
     },
   },
   ja: {
-    subtitle: '/ フライトレコーダー',
     tableView: 'テーブル表示',
     promptsView: 'プロンプト',
     promptsTitle: (n) => `プロンプト一覧 — ${n}件`,
@@ -650,6 +668,10 @@ let SESSIONLIST = [];   // flat session list for the compare picker
 let TAB = localStorage.getItem('agentfdr.tab') || 'timeline';
 const TAB_ICONS = { timeline: '🛫', table: '📋', prompts: '💬', usage: '📊', diff: '⚖️', search: '🔍' };
 
+const slugLabel = (slug) => slug.replace(/^-/, '').replace(/-/g, '/');
+const sessionMatches = (s, label, q) =>
+  !q || (s.title ?? '').toLowerCase().includes(q) || s.id.startsWith(q) || label.toLowerCase().includes(q);
+
 /** Rebuild the session selector, optionally filtered by title/id/project. */
 function buildSessionSelect(filter) {
   const sel = $('sessionSelect');
@@ -657,13 +679,11 @@ function buildSessionSelect(filter) {
   const q = (filter ?? '').trim().toLowerCase();
   sel.textContent = '';
   for (const p of PROJECTS) {
-    const slugLabel = p.slug.replace(/^-/, '').replace(/-/g, '/');
-    const hits = p.sessions.filter((s) =>
-      !q || (s.title ?? '').toLowerCase().includes(q) || s.id.startsWith(q) || slugLabel.toLowerCase().includes(q)
-    );
+    const label = slugLabel(p.slug);
+    const hits = p.sessions.filter((s) => sessionMatches(s, label, q));
     if (!hits.length) continue;
     const og = document.createElement('optgroup');
-    og.label = slugLabel;
+    og.label = label;
     for (const s of hits) {
       const opt = document.createElement('option');
       opt.value = s.id;
@@ -685,6 +705,75 @@ function buildSessionSelect(filter) {
   }
 }
 const TOOLFILTER = new Set(); // legend filter: empty = show all tool groups
+
+// Quick-open list under the session filter box. Typing must produce something
+// visible immediately; narrowing only the closed <select> reads as broken.
+let filterIdx = -1;
+function renderFilterList() {
+  const box = $('filterList');
+  const q = $('sessionFilter').value.trim().toLowerCase();
+  buildSessionSelect(q); // keep the dropdown in sync too
+  filterIdx = -1;
+  box.textContent = '';
+  if (!q) {
+    box.classList.add('hidden');
+    return;
+  }
+  const hits = SESSIONLIST
+    .filter((s) => sessionMatches(s, slugLabel(s.slug), q))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, 12);
+  box.classList.remove('hidden');
+  if (!hits.length) {
+    add(box, 'div', 'fnone', T().searchNone);
+    return;
+  }
+  for (const s of hits) {
+    const b = document.createElement('button');
+    b.className = 'fitem';
+    b.dataset.id = s.id;
+    add(b, 'div', 'ft', s.title || s.id.slice(0, 8));
+    add(b, 'div', 'fm', slugLabel(s.slug) + ' · ' + new Date(s.mtimeMs).toLocaleString());
+    // pointerdown beats the input's blur handler; click would arrive too late
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      pickFilterItem(s.id);
+    });
+    box.appendChild(b);
+  }
+}
+
+function pickFilterItem(id) {
+  $('filterList').classList.add('hidden');
+  const sel = $('sessionSelect');
+  sel.value = id;
+  load(id);
+}
+
+function initFilterBox() {
+  const input = $('sessionFilter');
+  input.addEventListener('input', renderFilterList);
+  input.addEventListener('focus', () => { if (input.value.trim()) renderFilterList(); });
+  input.addEventListener('blur', () => setTimeout(() => $('filterList').classList.add('hidden'), 150));
+  input.addEventListener('keydown', (e) => {
+    const box = $('filterList');
+    if (e.key === 'Escape') {
+      box.classList.add('hidden');
+      return;
+    }
+    const items = [...box.querySelectorAll('.fitem')];
+    if (!items.length || box.classList.contains('hidden')) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      filterIdx = (filterIdx + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items.forEach((el, i) => el.classList.toggle('active', i === filterIdx));
+      items[filterIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      pickFilterItem(items[Math.max(0, filterIdx)].dataset.id);
+    }
+  });
+}
 
 /** Drag the panel's left edge to resize; width persists across sessions. */
 function initDrawerResize() {
@@ -905,7 +994,7 @@ async function init() {
   }
   buildSessionSelect('');
   sel.addEventListener('change', () => load(sel.value));
-  $('sessionFilter').addEventListener('input', () => buildSessionSelect($('sessionFilter').value));
+  initFilterBox();
   $('diffSelect').addEventListener('change', loadDiff);
   $('searchGo').addEventListener('click', runSearch);
   $('searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
@@ -1256,7 +1345,6 @@ function setTabLabel(btn, label, count) {
 }
 function applyChrome() {
   document.documentElement.lang = LANG;
-  document.querySelector('[data-i18n="subtitle"]').textContent = T().subtitle;
   const tabLabels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff, search: T().tabSearch };
   for (const btn of document.querySelectorAll('#tabs button')) {
     setTabLabel(btn, tabLabels[btn.dataset.tab]);
