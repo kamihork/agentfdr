@@ -156,6 +156,7 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 - [x] Pluggable detector rules — thresholds, suppressions and custom regex rules via `.agentfdr.json`
 - [x] Codex CLI adapter — rollouts under `~/.codex/sessions` are auto-discovered
 - [ ] Convergence-aware loop detection (is the retry making progress?)
+- [ ] Intent-drift detection — flag the turn where the tool/file footprint diverges from what the prompt asked for
 - [ ] More agents (Gemini CLI, OpenHands, Aider) behind the same adapter seam
 - [ ] Subagent/sidechain tree rendering
 
