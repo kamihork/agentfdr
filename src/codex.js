@@ -76,12 +76,17 @@ export function parseCodexText(text, file = '<memory>') {
     if (!cur && !usage) return;
     const t = openTurn(ts);
     if (usage) {
-      // Per codex-rs protocol, input_tokens excludes cached tokens; cache
-      // writes are recorded but not billed by OpenAI (usually 0).
+      // In real rollouts input_tokens INCLUDES cached tokens (verified:
+      // total_tokens = input + output, and cached <= input always), despite a
+      // protocol comment suggesting otherwise. Fresh input = input - cached,
+      // clamped in case some build ships exclusive semantics. Cache writes
+      // are recorded but not billed by OpenAI (usually 0).
+      const inp = usage.input_tokens ?? 0;
+      const cached = usage.cached_input_tokens ?? 0;
       t.usage = {
-        input: usage.input_tokens ?? 0,
+        input: cached <= inp ? inp - cached : inp,
         output: usage.output_tokens ?? 0,
-        cacheRead: usage.cached_input_tokens ?? 0,
+        cacheRead: cached,
         cacheCreation: usage.cache_write_input_tokens ?? 0,
       };
     }
@@ -260,10 +265,24 @@ function parseArgs(args) {
     try {
       input = JSON.parse(args);
     } catch {
+      // Codex "exec" custom tool calls carry a JS snippet, not JSON:
+      //   const r = await tools.exec_command({"cmd":"npm test", ...})
+      // The embedded cmd is both the readable summary and the loop signature.
+      const embedded = /\btools\.\w+\(\s*(\{[\s\S]*?\})\s*\)/.exec(args);
+      if (embedded) {
+        try {
+          const o = JSON.parse(embedded[1]);
+          const cmd = o.cmd ?? o.command;
+          if (typeof cmd === 'string') return { ...o, command: cmd };
+        } catch {
+          // fall through to the raw-string form
+        }
+      }
       return args.trim() ? { input: truncate(args, 500) } : {};
     }
   }
   if (!input || typeof input !== 'object') return {};
+  if (typeof input.cmd === 'string' && input.command == null) return { ...input, command: input.cmd };
   return normalizeCommand(input);
 }
 
@@ -290,9 +309,11 @@ function summarizeCodexInput(name, input) {
   return keys.length ? truncate(keys.join(', '), 120) : '';
 }
 
-/** Output is untagged: a plain string, or JSON like
+/** Output is untagged: a plain string, JSON like
  *  {"output": "...", "metadata": {"exit_code": 1, "duration_seconds": 2.3}},
- *  or {"content": "...", "success": false}. */
+ *  {"content": "...", "success": false}, or (real 0.14x rollouts) an array of
+ *  content blocks [{type: "input_text", text: "Script completed\nWall time 1.7
+ *  seconds\nOutput:\n..."}]. */
 function parseOutput(output, callTs, ts) {
   let text = typeof output === 'string' ? output : '';
   let isError = false;
@@ -305,9 +326,12 @@ function parseOutput(output, callTs, ts) {
       parsed = null;
     }
   }
-  if (parsed && typeof parsed === 'object') {
+  if (Array.isArray(parsed)) {
+    text = itemText(parsed);
+  } else if (parsed && typeof parsed === 'object') {
     if (typeof parsed.output === 'string') text = parsed.output;
     else if (typeof parsed.content === 'string') text = parsed.content;
+    else if (Array.isArray(parsed.content)) text = itemText(parsed.content);
     if (parsed.success === false) isError = true;
     const metaInfo = parsed.metadata;
     if (metaInfo && typeof metaInfo === 'object') {
@@ -315,6 +339,11 @@ function parseOutput(output, callTs, ts) {
       if (typeof metaInfo.duration_seconds === 'number') durationMs = Math.round(metaInfo.duration_seconds * 1000);
     }
   }
+  // exec_command preamble: "Script completed|failed ... Wall time 1.7 seconds"
+  const head = text.slice(0, 200);
+  if (/^Script (failed|errored)|exit(?:ed)? with (?:code |status )?[1-9]/im.test(head)) isError = true;
+  const wall = /Wall time ([\d.]+) seconds/.exec(head);
+  if (wall) durationMs = Math.round(Number(wall[1]) * 1000);
   return { isError, chars: text.length, snippet: truncate(text, SNIPPET_LEN), durationMs };
 }
 

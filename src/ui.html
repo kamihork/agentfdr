@@ -811,7 +811,7 @@ const css = (name) => getComputedStyle(document.documentElement).getPropertyValu
 // Fixed tool-group order — identity follows the tool, never its rank.
 // Covers both Claude Code tool names and Codex CLI call names.
 const TOOL_GROUPS = [
-  ['shell',  (n) => /^(Bash|BashOutput|KillShell|shell|local_shell|exec_command)$/.test(n)],
+  ['shell',  (n) => /^(Bash|BashOutput|KillShell|shell|local_shell|exec|exec_command)$/.test(n)],
   ['write',  (n) => /^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$/.test(n)],
   ['read',   (n) => /^(Read|read_file|view_image)$/.test(n)],
   ['search', (n) => /^(Grep|Glob|LS|grep|find|list_dir)$/.test(n)],
