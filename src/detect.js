@@ -48,10 +48,43 @@ function isSuppressed(sig, patterns) {
   return patterns.some((p) => (p.endsWith('*') ? sig.startsWith(p.slice(0, -1)) : sig === p));
 }
 
+const WRITE_TOOL_RE = /^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$/;
+// test/build/lint/install/poll idioms — a command spent re-running one of
+// these isn't evidence of being stuck the way an arbitrary repeated command is.
+const RETRY_IDIOM_RE =
+  /\b(test|jest|mocha|pytest|vitest|rspec|tox|phpunit|go\s+test|cargo\s+test|make\s+test)\b|\b(build|tsc|webpack|vite|cargo\s+build|go\s+build|make\s+build)\b|\b(lint|eslint|flake8|ruff|rubocop|stylelint)\b|\b(install|npm\s+ci|bundle\s+install|pip\s+install)\b|\bpoll(ing)?\b/i;
+
+/**
+ * A matched span is "retry-shaped" when it's more plausibly ongoing work than
+ * a stuck spin: every call strictly alternates write/non-write (fix, verify,
+ * fix, verify...), or every call is a recognized test/build/lint idiom (test,
+ * then build, then test...). Classified over the WHOLE matched span, not just
+ * the one-period gram — a 4-gram of [edit, test, edit, test] repeated is, at
+ * every single position, still edit<->verify alternation, even though the
+ * period the n-gram scan happened to lock onto was 4, not 2. Pure single-
+ * action spins (the same call over and over with nothing interleaved) are
+ * never retry-shaped — that pattern has no ambiguity to give the benefit of
+ * the doubt to.
+ */
+function isRetryShapedSpan(items) {
+  if (items.length < 2) return false;
+  const writes = items.map((it) => WRITE_TOOL_RE.test(it.call.name));
+  const alternates = writes.every((w, k) => k === 0 || w !== writes[k - 1]);
+  if (alternates) return true; // edit <-> verify (or verify <-> verify never happens here: alternates implies both present)
+  return items.every((it) => {
+    const cmd = it.call.input?.command;
+    return typeof cmd === 'string' && RETRY_IDIOM_RE.test(cmd);
+  });
+}
+
 /**
  * Loop: the same n-gram of tool signatures repeated >= loopRepeats times
- * consecutively (n = 1..4), covering at least loopMinCalls calls. A loop whose
- * signatures are ALL suppressed (legitimate retries etc.) is not flagged.
+ * consecutively (n = 1..4), covering at least loopMinCalls calls. Grams that
+ * look like ordinary iterative work — an edit alternating with a check, or a
+ * test/build/lint idiom repeating — need >= loopRetryRepeats instead: more
+ * tolerance for the common case, not immunity, so a session that's still
+ * cycling well past that still gets flagged. A loop whose signatures are ALL
+ * suppressed via config (legitimate retries etc.) is not flagged at all.
  */
 export function detectToolLoops(model, th = DEFAULT_THRESHOLDS, suppress = []) {
   const seq = callSequence(model);
@@ -68,7 +101,8 @@ export function detectToolLoops(model, th = DEFAULT_THRESHOLDS, suppress = []) {
         repeats++;
       }
       const span = repeats * n;
-      if (repeats >= th.loopRepeats && span >= th.loopMinCalls) {
+      const neededRepeats = isRetryShapedSpan(seq.slice(i, i + span)) ? th.loopRetryRepeats : th.loopRepeats;
+      if (repeats >= neededRepeats && span >= th.loopMinCalls) {
         const gramSigs = seq.slice(i, i + n).map((s) => s.sig);
         const already = [...Array(span).keys()].every((k) => covered.has(i + k));
         const legit = gramSigs.every((sig) => isSuppressed(sig, suppress));

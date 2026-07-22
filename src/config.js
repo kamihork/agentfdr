@@ -22,6 +22,7 @@ import { homedir } from 'node:os';
 export const DEFAULT_THRESHOLDS = {
   loopRepeats: 3,        // same n-gram repeated this many times consecutively
   loopMinCalls: 6,       // ...covering at least this many calls
+  loopRetryRepeats: 6,   // higher bar for edit<->verify cycles and test/build/lint idioms
   errorStreak: 3,        // consecutive failing tool calls
   contextBloatChars: 50_000,
   tokenSpikeTokens: 50_000,

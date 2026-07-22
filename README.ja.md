@@ -128,7 +128,7 @@ agentfdr assert --no-loops --max-tokens 2M   # CI ゲート: 違反で exit 1
 }
 ```
 
-- `thresholds` — 各検知器の閾値を上書き(`loopRepeats`、`loopMinCalls`、`errorStreak`、`contextBloatChars`、`tokenSpikeTokens`、`tokenSpikeRatio`、`cacheThrashTurns`、`fileChurnEdits`)
+- `thresholds` — 各検知器の閾値を上書き(`loopRepeats`、`loopMinCalls`、`loopRetryRepeats`、`errorStreak`、`contextBloatChars`、`tokenSpikeTokens`、`tokenSpikeRatio`、`cacheThrashTurns`、`fileChurnEdits`)。`loopRetryRepeats`(既定6)は「編集↔検証の交互反復」や「テスト/ビルド/lintの慣用句の反復」など、通常の作業に見えるループ形状に適用される閾値で、それ以外は `loopRepeats`(既定3)を使います
 - `suppressLoops` — 反復が正当なツールシグネチャ(テストのリトライ、ビルドのポーリングなど)。完全一致または `プレフィックス*`
 - `disable` — 検知器ごと無効化
 - `custom` — ツール結果やアシスタントの発言に対する独自の正規表現ルール(`in`: `tool-results` | `assistant-text` | `both`)。ビューア・blame レポート・`assert` に他のフラグと同格で現れます
@@ -155,7 +155,7 @@ transcript にはあなたのコード・プロンプト・ファイルパスが
 - [x] セッション比較 — 失敗した試行と成功した再試行の diff
 - [x] 検知ルールのプラグイン化 — `.agentfdr.json` で閾値・除外・カスタム正規表現ルール
 - [x] Codex CLI アダプタ — `~/.codex/sessions` のロールアウトを自動検出
-- [ ] ループ検知の精度向上: 編集→テストの交互サイクルを作業として扱い、よくあるリトライ慣用句のデフォルト除外リストを同梱
+- [x] ループ検知の精度向上: 編集↔検証の交互サイクルやテスト/ビルド/lintの慣用句は、フラグが立つまでにより多くの反復を要求(除外ではなくノイズ削減 — それでも長引けば検知される)
 - [ ] ループへの収束アノテーション(あくまでヒント表示、「安全宣言」にはしない)— 誤検知率が十分下がってから
 - [ ] 意図ドリフト検知 — ツール/ファイルの操作範囲がプロンプトの依頼内容から逸れ始めたターンをフラグ
 - [ ] 他エージェントのアダプタ(Gemini CLI、OpenHands、Aider)を同じ仕組みで追加

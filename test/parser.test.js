@@ -98,9 +98,11 @@ test('tool signature keys on the call target', () => {
 });
 
 test('detects a tool loop (same edit-test cycle repeated)', () => {
+  // Edit<->test is an ambiguous ("could be real iteration") gram shape, so it
+  // needs loopRetryRepeats (6), not the base loopRepeats (3) — see detect.js.
   const lines = [];
   let i = 0;
-  for (let rep = 0; rep < 4; rep++) {
+  for (let rep = 0; rep < 6; rep++) {
     lines.push(assistantLine(i, 'msg_' + i, [
       { type: 'tool_use', id: 'e' + i, name: 'Edit', input: { file_path: '/same.js' } },
     ]));
@@ -118,7 +120,26 @@ test('detects a tool loop (same edit-test cycle repeated)', () => {
   assert.equal(loops[0].severity, 'critical');
   assert.match(loops[0].detail, /Edit:\/same\.js → Bash:npm test/);
   assert.equal(loops[0].turnStart, 0);
-  assert.equal(loops[0].turnEnd, 7);
+  assert.equal(loops[0].turnEnd, 11);
+});
+
+test('a short edit-test cycle (ordinary iteration) is not flagged as a loop', () => {
+  const lines = [];
+  let i = 0;
+  for (let rep = 0; rep < 4; rep++) {
+    lines.push(assistantLine(i, 'msg_' + i, [
+      { type: 'tool_use', id: 'e' + i, name: 'Edit', input: { file_path: '/same.js' } },
+    ]));
+    lines.push(toolResultLine(i + 100, 'e' + i));
+    i++;
+    lines.push(assistantLine(i, 'msg_' + i, [
+      { type: 'tool_use', id: 'b' + i, name: 'Bash', input: { command: 'npm test' } },
+    ]));
+    lines.push(toolResultLine(i + 100, 'b' + i, { isError: true, text: 'FAIL' }));
+    i++;
+  }
+  const model = parseSessionText(jsonl(lines));
+  assert.equal(detectToolLoops(model).length, 0);
 });
 
 test('no loop flag for varied work', () => {
@@ -173,7 +194,7 @@ test('blame report renders in Japanese with structured flag params', async () =>
   const { blameReport } = await import('../src/report.js');
   const lines = [];
   let i = 0;
-  for (let rep = 0; rep < 4; rep++) {
+  for (let rep = 0; rep < 6; rep++) {
     lines.push(assistantLine(i, 'msg_' + i, [
       { type: 'tool_use', id: 'e' + i, name: 'Edit', input: { file_path: '/same.js' } },
     ]));
@@ -189,11 +210,11 @@ test('blame report renders in Japanese with structured flag params', async () =>
   const flags = detect(model);
   const ja = blameReport(model, flags, 'ja');
   assert.match(ja, /フライトレポート/);
-  assert.match(ja, /ツールループ ×4/);
+  assert.match(ja, /ツールループ ×6/);
   assert.match(ja, /ターン数/);
   const en = blameReport(model, flags, 'en');
   assert.match(en, /Flight report/);
-  assert.match(en, /Tool loop ×4/);
+  assert.match(en, /Tool loop ×6/);
 });
 
 test('collects models used, effort changes, and fast-mode turns', () => {
