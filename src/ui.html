@@ -361,6 +361,7 @@
     <select id="sessionSelect" aria-label="Session"></select>
     <button id="liveToggle" aria-pressed="false"></button>
     <button id="copyReport"></button>
+    <button id="cardBtn"></button>
     <button id="langToggle" title="Language / 言語"></button>
     <button id="themeToggle" title="Theme">◐</button>
   </header>
@@ -499,6 +500,9 @@ const I18N = {
     },
     fc: { warning: (n) => `${n} warning`, showAll: (n) => `Show all ${n} ▾`, collapse: 'Collapse ▴' },
     ov: { tools: 'TOP TOOLS', files: 'MOST-EDITED FILES', count: (n) => '×' + n },
+    cardBtn: '📤 Card',
+    cardTitle: 'Export a shareable PNG summary card',
+    card: { sub: 'flight report', billed: 'billed tokens', context: 'CONTEXT', output: 'OUTPUT', clean: 'no anomalies' },
     lanes: { tools: 'TOOLS', ctx: 'CONTEXT TOKENS', out: 'OUTPUT TOKENS' },
     legendGroups: { tools: 'TOOLS', tokens: 'TOKENS' },
     toolGroups: { shell: 'Shell', write: 'Edit/Write', read: 'Read', search: 'Search', agent: 'Subagent', web: 'Web', mcp: 'MCP', other: 'Other' },
@@ -602,6 +606,9 @@ const I18N = {
     },
     fc: { warning: (n) => `警告 ${n}件`, showAll: (n) => `すべて表示 (${n}) ▾`, collapse: '折りたたむ ▴' },
     ov: { tools: 'ツール使用 TOP', files: '編集回数の多いファイル', count: (n) => '×' + n },
+    cardBtn: '📤 カード',
+    cardTitle: '共有用のPNGサマリカードを書き出し',
+    card: { sub: 'フライトレポート', billed: '課金トークン', context: 'コンテキスト', output: '出力', clean: '異常なし' },
     lanes: { tools: 'ツール', ctx: 'コンテキストトークン', out: '出力トークン' },
     legendGroups: { tools: 'ツール', tokens: 'トークン' },
     toolGroups: { shell: 'シェル', write: '編集/書込', read: '読取', search: '検索', agent: 'サブエージェント', web: 'Web', mcp: 'MCP', other: 'その他' },
@@ -963,6 +970,7 @@ async function init() {
   initDrawerResize();
   $('liveToggle').addEventListener('click', () => setLive(!LIVE));
   $('copyReport').addEventListener('click', copyReport);
+  $('cardBtn').addEventListener('click', exportCard);
   // Catch up immediately when the tab becomes visible again (polling pauses while hidden).
   document.addEventListener('visibilitychange', () => { if (!document.hidden && LIVE) poll(); });
 
@@ -1336,6 +1344,219 @@ async function copyReport() {
   setTimeout(() => { btn.textContent = T().copyReport; }, 1500);
 }
 
+// ---------- shareable session card (canvas, 1200x630 @2x) ----------
+// The viral loop: every card someone posts is an ad. Rendered fully
+// client-side so the zero-dependency promise holds.
+const fmtTok = (n) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
+  : n >= 1000 ? Math.round(n / 1000) + 'k' : String(n);
+
+function renderCard() {
+  const W = 1200, H = 630, S = 2;
+  const cv = document.createElement('canvas');
+  cv.width = W * S;
+  cv.height = H * S;
+  const ctx = cv.getContext('2d');
+  ctx.scale(S, S);
+  const L = T();
+  const C = {
+    bg: '#0d0d0d', panel: '#161615', text: '#ffffff', sub: '#c3c2b7', muted: '#898781',
+    accent: '#f4511e', blue: '#3987e5', ctxFill: 'rgba(57,135,229,0.28)', green: '#1fbf85',
+    red: '#e05252', amber: '#fab219', border: 'rgba(255,255,255,0.14)',
+  };
+  const FONT = 'system-ui, -apple-system, "Segoe UI", "Hiragino Sans", sans-serif';
+  const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+  const t = MODEL.totals;
+  const s = MODEL.session;
+  const flags = MODEL.flags;
+  const crit = flags.filter((f) => f.severity === 'critical').length;
+
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // brand line
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = C.text;
+  ctx.font = `800 30px ${FONT}`;
+  ctx.fillText('agentfdr', 56, 74);
+  const bw = ctx.measureText('agentfdr').width;
+  ctx.fillStyle = C.muted;
+  ctx.font = `400 24px ${FONT}`;
+  ctx.fillText('/ ' + L.card.sub, 56 + bw + 14, 74);
+  // accent radar dot
+  ctx.fillStyle = C.accent;
+  ctx.beginPath();
+  ctx.arc(W - 68, 64, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(244,81,30,0.4)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(W - 68, 64, 15, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // title + meta
+  const ellipsize = (text, maxW, font) => {
+    ctx.font = font;
+    if (ctx.measureText(text).width <= maxW) return text;
+    let lo = 0, hi = text.length;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (ctx.measureText(text.slice(0, mid) + '…').width <= maxW) lo = mid;
+      else hi = mid - 1;
+    }
+    return text.slice(0, lo) + '…';
+  };
+  const titleFont = `650 40px ${FONT}`;
+  ctx.fillStyle = C.text;
+  ctx.font = titleFont;
+  ctx.fillText(ellipsize(s.title || (s.id ?? '').slice(0, 8), W - 112, titleFont), 56, 138);
+  const realModels = (s.models ?? []).map((m) => m.model).filter((m) => m && !m.startsWith('<'));
+  const meta = [
+    realModels.length ? realModels.join(' · ') : s.model,
+    s.startedAt && new Date(s.startedAt).toLocaleDateString(),
+    t.wallMs != null && fmtMs(t.wallMs),
+  ].filter(Boolean).join('   ·   ');
+  ctx.fillStyle = C.muted;
+  ctx.font = `400 21px ${FONT}`;
+  ctx.fillText(ellipsize(meta, W - 112, `400 21px ${FONT}`), 56, 176);
+
+  // stat row
+  const billed = t.tokens.input + t.tokens.cacheCreation + t.tokens.output;
+  const denom = t.tokens.input + t.tokens.cacheRead + t.tokens.cacheCreation;
+  const hit = denom > 0 ? Math.round((t.tokens.cacheRead / denom) * 100) : null;
+  const stats = [
+    { v: MODEL.cost?.usd != null ? '~' + fmtUsd(MODEL.cost.usd) : '—', l: L.tiles.cost, c: C.accent },
+    { v: String(t.turns), l: L.tiles.turns, c: C.text },
+    { v: fmtTok(billed), l: L.card.billed, c: C.text },
+    { v: hit == null ? '—' : hit + '%', l: L.tiles.cache, c: hit >= 80 ? C.green : hit >= 50 ? C.amber : C.red },
+    { v: String(flags.length), l: L.tiles.flags, c: crit ? C.red : flags.length ? C.amber : C.green },
+  ];
+  const statY = 268, cellW = (W - 112) / stats.length;
+  stats.forEach((st, i) => {
+    const x = 56 + i * cellW;
+    ctx.fillStyle = st.c;
+    ctx.font = `750 52px ${FONT}`;
+    ctx.fillText(st.v, x, statY);
+    ctx.fillStyle = C.muted;
+    ctx.font = `500 19px ${FONT}`;
+    ctx.fillText(st.l, x, statY + 32);
+  });
+
+  // chart panel: context area + output bars + prompt/error markers
+  const px = 56, py = 340, pw = W - 112, ph = 180;
+  ctx.fillStyle = C.panel;
+  ctx.beginPath();
+  ctx.roundRect(px, py, pw, ph, 14);
+  ctx.fill();
+  ctx.strokeStyle = C.border;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  const turns = MODEL.turns;
+  const n = turns.length;
+  const ix = px + 18, iw = pw - 36, iyTop = py + 26, ih = ph - 62;
+  const xAt = (i) => ix + (n > 1 ? (i / (n - 1)) * iw : iw / 2);
+  const maxCtx = Math.max(1, ...turns.map((tt) => tt.contextTokens));
+  const maxOut = Math.max(1, ...turns.map((tt) => tt.usage.output));
+
+  // context area (upper 70% of inner height)
+  const ctxH = ih * 0.68;
+  ctx.beginPath();
+  turns.forEach((tt, i) => {
+    const y = iyTop + ctxH - (tt.contextTokens / maxCtx) * ctxH;
+    i ? ctx.lineTo(xAt(i), y) : ctx.moveTo(xAt(i), y);
+  });
+  if (n === 1) ctx.lineTo(xAt(0) + 1, iyTop + ctxH - (turns[0].contextTokens / maxCtx) * ctxH);
+  ctx.strokeStyle = C.blue;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.lineTo(xAt(n - 1), iyTop + ctxH);
+  ctx.lineTo(xAt(0), iyTop + ctxH);
+  ctx.closePath();
+  ctx.fillStyle = C.ctxFill;
+  ctx.fill();
+
+  // output bars (lower strip)
+  const obTop = iyTop + ctxH + 8, obH = ih - ctxH - 8;
+  const bw2 = Math.max(1.5, Math.min(8, iw / Math.max(1, n) - 1));
+  ctx.fillStyle = C.green;
+  turns.forEach((tt, i) => {
+    const h = Math.max(1, (tt.usage.output / maxOut) * obH);
+    ctx.fillRect(xAt(i) - bw2 / 2, obTop + obH - h, bw2, h);
+  });
+
+  // error ticks under the bars
+  ctx.fillStyle = C.red;
+  turns.forEach((tt, i) => {
+    if (tt.toolCalls.some((c) => c.result?.isError)) ctx.fillRect(xAt(i) - bw2 / 2, py + ph - 12, bw2, 5);
+  });
+
+  // prompt markers above the area — small and translucent: texture, not clutter
+  ctx.fillStyle = 'rgba(244,81,30,0.55)';
+  for (const p of MODEL.prompts) {
+    const i = Math.max(0, Math.min(n - 1, (p.afterTurn ?? -1) + 1));
+    const x = xAt(i);
+    ctx.beginPath();
+    ctx.moveTo(x - 3.5, iyTop - 11);
+    ctx.lineTo(x + 3.5, iyTop - 11);
+    ctx.lineTo(x, iyTop - 5);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // lane labels
+  ctx.fillStyle = C.muted;
+  ctx.font = `600 13px ${FONT}`;
+  ctx.fillText(L.card.context, ix, iyTop + 14);
+  ctx.fillText(L.card.output, ix, obTop + 13);
+
+  // footer: anomaly breakdown left, CTA right
+  const fy = 584;
+  ctx.font = `600 22px ${FONT}`;
+  if (!flags.length) {
+    ctx.fillStyle = C.green;
+    ctx.fillText('● ' + L.card.clean, 56, fy);
+  } else {
+    let x = 56;
+    if (crit) {
+      ctx.fillStyle = C.red;
+      const s1 = '● ' + T().subs.critical(crit);
+      ctx.fillText(s1, x, fy);
+      x += ctx.measureText(s1).width + 26;
+    }
+    if (flags.length - crit) {
+      ctx.fillStyle = C.amber;
+      ctx.fillText('▲ ' + T().fc.warning(flags.length - crit), x, fy);
+    }
+  }
+  ctx.font = `600 24px ${MONO}`;
+  const cta = 'npx agentfdr';
+  const ctaW = ctx.measureText(cta).width;
+  ctx.fillStyle = C.accent;
+  ctx.fillText('$', W - 56 - ctaW - 22, fy);
+  ctx.fillStyle = C.sub;
+  ctx.fillText(cta, W - 56 - ctaW, fy);
+
+  return cv;
+}
+
+function exportCard() {
+  if (!MODEL) return;
+  const btn = $('cardBtn');
+  try {
+    renderCard().toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `agentfdr-${(MODEL.session.id ?? 'session').slice(0, 8)}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }, 'image/png');
+    btn.textContent = T().copied;
+  } catch {
+    btn.textContent = '✗';
+  }
+  setTimeout(() => { btn.textContent = T().cardBtn; }, 1500);
+}
+
 /** Static chrome strings (buttons, hints) — everything outside render(). */
 function setTabLabel(btn, label, count) {
   btn.textContent = '';
@@ -1356,6 +1577,8 @@ function applyChrome() {
   $('searchGo').textContent = T().searchGo;
   $('sessionFilter').placeholder = T().sessionFilterPh;
   $('copyReport').textContent = T().copyReport;
+  $('cardBtn').textContent = T().cardBtn;
+  $('cardBtn').title = T().cardTitle;
   $('liveToggle').textContent = T().live;
   $('liveToggle').title = T().liveTitle;
   $('langToggle').textContent = LANG === 'ja' ? 'EN' : '日本語';
