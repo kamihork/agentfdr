@@ -159,7 +159,6 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 - [x] Loop-detector precision: interleaved edit↔verify cycles and test/build/lint idioms need more repeats before flagging — noise reduction, not exemption, so a session still stuck past that point is still caught
 - [ ] Convergence annotation on loops (worded as a hint, never an all-clear) — after the false-positive rate is boring
 - [ ] Intent-drift detection — flag the turn where the tool/file footprint diverges from what the prompt asked for
-- [ ] More agents (Gemini CLI, OpenHands, Aider) behind the same adapter seam
 - [ ] Subagent/sidechain tree rendering
 
 ## Development
