@@ -171,7 +171,7 @@ node bin/agentfdr.js     # run the CLI from source
 
 `src/ui.html` is served fresh on every request — edit it and reload the browser, no restart needed.
 
-Contributions welcome — especially adapters for other agents and new detector heuristics. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions welcome — especially new detector heuristics and viewer improvements. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

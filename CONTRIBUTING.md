@@ -10,9 +10,9 @@ Each detector is a pure function `model -> flags[]`. If you've watched an agent 
 - `severity: 'critical'` for "the agent was definitely wasting work", `'warning'` for "worth a look"
 - Add a test in `test/` with a synthetic transcript that triggers it and one that must NOT trigger it (false positives are worse than misses)
 
-## 2. Agent adapters (`src/parser.js`)
+## 2. Agent adapters (`src/parser.js`, `src/codex.js`)
 
-The normalized model (turns / tool calls / usage / meta events) is deliberately agent-agnostic. To support another agent (Codex CLI, Gemini CLI, OpenHands, Aider...), write a parser from its session log format to the same model shape. Open an issue first so we can agree on where its fields map.
+The normalized model (turns / tool calls / usage / meta events) is deliberately agent-agnostic: Claude Code and Codex CLI both parse into the same shape (see `src/codex.js` for how a second format is sniffed and mapped). Support for more agents isn't currently planned, but the seam exists — if you have a strong case for one, open an issue first so we can agree on where its fields map.
 
 Parser rules that keep the recorder trustworthy:
 
