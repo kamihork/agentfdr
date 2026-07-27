@@ -22,6 +22,11 @@ import { basename } from 'node:path';
 
 const SNIPPET_LEN = 400;
 
+// Text the harness injects as a user message: slash-command scaffolding, task
+// notifications, system reminders. It arrives on the same lines as real user
+// input but nobody typed it, so it must not be counted as a prompt.
+const HARNESS_BLOCK_RE = /^<(task-notification|system-reminder|local-command|command-name|command-message)/;
+
 export function parseSessionFile(file) {
   const text = readFileSync(file, 'utf8');
   return parseSessionText(text, file);
@@ -99,7 +104,7 @@ export function parseSessionText(text, file = '<memory>') {
         // enqueued and later delivered mid-turn without a visible user line.
         // Harness-generated queue items (task notifications etc.) are not prompts.
         if (entry.operation === 'enqueue' && typeof entry.content === 'string' && entry.content.trim() &&
-            !/^<(task-notification|system-reminder|local-command|command-name|command-message)/.test(entry.content.trim())) {
+            !HARNESS_BLOCK_RE.test(entry.content.trim())) {
           prompts.push({
             promptId: null,
             timestamp: entry.timestamp ?? null,
@@ -263,6 +268,10 @@ export function parseSessionText(text, file = '<memory>') {
       }
       return;
     }
+    // Task notifications and system reminders ride in on ordinary user lines.
+    // Nobody typed them, so they are not prompts — the same rule the queue path
+    // already applies.
+    if (HARNESS_BLOCK_RE.test(textContent.trimStart())) return;
     // A queued message can also surface shortly after as a regular user line —
     // upgrade the queued entry instead of listing the prompt twice. The time
     // bound matters: queue delivery happens within the same turn, so an

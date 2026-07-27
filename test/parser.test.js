@@ -271,6 +271,18 @@ test('queued prompt later delivered as a user line is not duplicated', () => {
   assert.equal(model.prompts[0].afterTurn, 0); // jump target updated to delivery point
 });
 
+test('harness-injected user lines are not prompts', () => {
+  const model = parseSessionText(jsonl([
+    { type: 'user', uuid: 'p1', timestamp: ts(0), sessionId: 'sess-1', message: { role: 'user', content: 'fix the bug' } },
+    assistantLine(1, 'msg_A', [{ type: 'text', text: 'ok' }]),
+    // delivered on an ordinary user line, but nobody typed it
+    { type: 'user', uuid: 'p2', timestamp: ts(2), sessionId: 'sess-1', message: { role: 'user', content: '<task-notification>\n<task-id>abc</task-id>\n</task-notification>' } },
+    { type: 'user', uuid: 'p3', timestamp: ts(3), sessionId: 'sess-1', message: { role: 'user', content: '<system-reminder>be careful</system-reminder>' } },
+  ]));
+  assert.equal(model.prompts.length, 1);
+  assert.equal(model.prompts[0].text, 'fix the bug');
+});
+
 test('one compaction recorded via multiple transcript lines counts once', () => {
   const model = parseSessionText(jsonl([
     assistantLine(0, 'msg_A', [{ type: 'text', text: 'hi' }]),

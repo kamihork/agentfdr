@@ -39,7 +39,8 @@ That's the whole setup. Your sessions are already recorded — Claude Code write
 - 🤝 **Two agents, one cockpit** — Claude Code and OpenAI Codex CLI sessions, auto-discovered and investigated with the same timeline, detectors, search, and diff
 - 🔎 **Full-text search** — `agentfdr search` (and the **Search** tab) finds any prompt, assistant reply, tool call or result across every session, and jumps to the exact turn
 - 🔍 **Turn dissection** — resizable side panel with usage breakdown, assistant text, and every tool call's duration, result size, and snippet; step with ←/→
-- 🚨 **Anomaly detection** — tool loops, error streaks, context bloat, token spikes, cache thrash, file churn, and refusals, flagged automatically
+- 🚨 **Anomaly detection** — tool loops, error streaks, context bloat, token spikes, cache thrash, file churn, intent drift, and refusals, flagged automatically
+- ⧉ **Subagent tree** — work delegated to subagents lands in transcripts of its own and never shows up in the session totals; the **Subagents** tab reattaches every agent to the turn that spawned it (nested agents included) with its turns, tool calls, billed tokens, and anomalies
 - 📡 **Live watch mode** — `agentfdr watch` follows a session that's still running
 - 📊 **Plan usage** — 5-hour window / daily / weekly burn across all projects, a 12-month activity heatmap, plan-tier auto-detection, and calibratable budgets with warning bars
 - 💸 **Cost estimation** — estimated USD per session and per model, from list prices
@@ -86,7 +87,7 @@ Options: `--port <n>` (auto-falls-back if taken), `--no-browser`, `--json`, `--l
 
 The **dissection panel** lives on the right (always visible on wide screens; slides in on narrow ones) — click a turn and it fills in, and the timeline stays visible so you can step through turns (**←/→**, **Esc** deselects) without losing your place. Drag the panel's left edge to resize it; the width persists. While no turn is selected, the panel shows a **session overview**: the tools that did the work and the most-edited files.
 
-Tabs switch the main view: **Timeline / Turns / Prompts / Usage / Compare / Search**; clicking a prompt, an anomaly chip, or a search hit jumps back to the timeline at that turn. The filter box in the header narrows the session dropdown across all projects. Click a tool color in the legend to filter the tools lane. **Copy report** puts the blame markdown on your clipboard; **📤 Card** exports the session as a shareable PNG summary card; **● LIVE** re-fetches while the session is still running (on automatically via `agentfdr watch`). Language and theme toggles are in the header; everything persists, and any view is deep-linkable (`?theme=dark&tab=usage&sel=95`).
+Tabs switch the main view: **Timeline / Turns / Prompts / Subagents / Usage / Compare / Search** (Subagents appears only when the session spawned any); clicking a prompt, an anomaly chip, a subagent's spawn turn, or a search hit jumps back to the timeline at that turn. The filter box in the header narrows the session dropdown across all projects. Click a tool color in the legend to filter the tools lane. **Copy report** puts the blame markdown on your clipboard; **📤 Card** exports the session as a shareable PNG summary card; **● LIVE** re-fetches while the session is still running (on automatically via `agentfdr watch`). Language and theme toggles are in the header; everything persists, and any view is deep-linkable (`?theme=dark&tab=usage&sel=95`).
 
 **Session readout** — the header line lists every model that produced a turn (with per-model turn counts when the session switched models), the number of fast-mode turns, and the effort level. A caveat on effort: it is not a structured field in the transcript, so it's recovered from `/effort` command output and only appears when the level was set during the session.
 
@@ -103,11 +104,13 @@ Heuristics that answer "where do I look first?":
 | Flag | Meaning |
 |---|---|
 | `loop` | The same tool-call sequence repeated 3+ times consecutively |
+| ↳ convergence hint | A flagged loop also carries a hint read off the tool *results*: still changing (may be converging) vs. identical every pass (looks stuck). It is a hint, never an all-clear — the loop is flagged either way, and ties break toward "looks stuck" |
 | `error-streak` | 3+ consecutive tool calls failed |
 | `context-bloat` | A single tool result ≥50k chars landed in context |
 | `token-spike` | Context jumped >60% (+50k) in one turn |
 | `cache-thrash` | Consecutive turns paying full price, zero cache hits |
 | `file-churn` | The same file edited 6+ times |
+| `intent-drift` | The edits walked away from what the prompt asked for — and never came back before the next prompt. Only judged when the prompt named something the session actually opened; with no stated target there is no intent to measure drift against, so it stays quiet |
 | `refusal` | A turn ended with `stop_reason: refusal` (safety decline) |
 | `stalled-call` | A tool call never returned a result while the session moved on |
 | `api-error` | A failing tool result carried an upstream API error (rate limit, overloaded, quota) |
@@ -129,7 +132,7 @@ All detectors are tunable via `.agentfdr.json` (looked up as `--config <path>` �
 }
 ```
 
-- `thresholds` — override any detector threshold (`loopRepeats`, `loopMinCalls`, `loopRetryRepeats`, `errorStreak`, `contextBloatChars`, `tokenSpikeTokens`, `tokenSpikeRatio`, `cacheThrashTurns`, `fileChurnEdits`). `loopRetryRepeats` (default 6) is the bar for loops shaped like ordinary iteration — edit↔verify alternation, or a test/build/lint idiom repeating — vs. `loopRepeats` (default 3) for everything else
+- `thresholds` — override any detector threshold (`loopRepeats`, `loopMinCalls`, `loopRetryRepeats`, `errorStreak`, `contextBloatChars`, `tokenSpikeTokens`, `tokenSpikeRatio`, `cacheThrashTurns`, `fileChurnEdits`, `driftAnchorTurns`, `driftEditTurns`). `loopRetryRepeats` (default 6) is the bar for loops shaped like ordinary iteration — edit↔verify alternation, or a test/build/lint idiom repeating — vs. `loopRepeats` (default 3) for everything else. `driftEditTurns` (default 3) is how many consecutive off-target editing turns intent-drift needs; raise it if your changes are routinely cross-cutting
 - `suppressLoops` — tool signatures whose repetition is legitimate (retrying a test, polling a build); exact match or `prefix*`
 - `disable` — turn whole detectors off
 - `custom` — your own regex rules over tool results and/or assistant text (`in`: `tool-results` | `assistant-text` | `both`), surfaced as first-class flags in the viewer, blame report, and `assert`
@@ -137,6 +140,8 @@ All detectors are tunable via `.agentfdr.json` (looked up as `--config <path>` �
 ## How it works
 
 Claude Code appends every event of a session — user prompts, assistant messages with full token usage, tool calls, tool results, compaction, mode changes — to a JSONL transcript under `~/.claude/projects/<project>/<session-id>.jsonl`. Codex CLI does the same with rollout files under `~/.codex/sessions/YYYY/MM/DD/`. `agentfdr` sniffs the format per file, parses both into one normalized turn model, and runs the same detectors over it. That's it: no daemon, no database, no runtime dependencies (Node ≥18 standard library only).
+
+Subagents get transcripts of their own — `<session-id>/subagents/**/agent-*.jsonl`, with a sibling `.meta.json` naming the tool call that spawned them — so they are parsed lazily, only when you open the Subagents tab or run `blame`. Older Claude Code versions wrote sidechain turns inline in the main file instead; both shapes produce the same tree.
 
 Neither transcript format is a published API, so the parsers are written to survive them: unknown line types become meta events, malformed lines are counted and skipped, and each format's quirks are contained in its own adapter module. Data locations can be overridden with `AGENTFDR_CLAUDE_DIR` / `AGENTFDR_CODEX_DIR`. (Plan usage tracks your Claude subscription and stays Claude-only.)
 
@@ -157,9 +162,9 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 - [x] Pluggable detector rules — thresholds, suppressions and custom regex rules via `.agentfdr.json`
 - [x] Codex CLI adapter — rollouts under `~/.codex/sessions` are auto-discovered
 - [x] Loop-detector precision: interleaved edit↔verify cycles and test/build/lint idioms need more repeats before flagging — noise reduction, not exemption, so a session still stuck past that point is still caught
-- [ ] Convergence annotation on loops (worded as a hint, never an all-clear) — after the false-positive rate is boring
-- [ ] Intent-drift detection — flag the turn where the tool/file footprint diverges from what the prompt asked for
-- [ ] Subagent/sidechain tree rendering
+- [x] Convergence annotation on loops (worded as a hint, never an all-clear) — after the false-positive rate is boring
+- [x] Intent-drift detection — flag the turn where the tool/file footprint diverges from what the prompt asked for
+- [x] Subagent/sidechain tree rendering
 
 ## Development
 

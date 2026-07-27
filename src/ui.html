@@ -275,6 +275,27 @@
   .legend button.key.dimmed { opacity: 0.4; }
   .legend .hint { color: var(--text-muted); font-size: 10.5px; }
 
+  /* subagent tree */
+  #subsBody .snote { color: var(--text-muted); font-size: 12px; margin-bottom: 6px; }
+  #subsBody .stotals { font-size: 12.5px; font-variant-numeric: tabular-nums; margin-bottom: 10px; }
+  #subsBody .sgroup {
+    display: flex; gap: 8px; align-items: baseline; margin: 12px 0 2px;
+    font-size: 12px; color: var(--text-muted); letter-spacing: 0.03em;
+  }
+  #subsBody .sgroup button { font-size: 11.5px; padding: 1px 8px; font-variant-numeric: tabular-nums; }
+  #subsBody .sagent {
+    display: flex; gap: 10px; align-items: baseline; padding: 4px 0 4px 14px;
+    border-bottom: 1px solid var(--grid); font-size: 12.5px;
+  }
+  #subsBody .sagent:last-child { border-bottom: none; }
+  #subsBody .sagent .stype {
+    flex: none; font-size: 10.5px; color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; white-space: nowrap;
+  }
+  #subsBody .sagent .sdesc { flex: 1; color: var(--text-secondary); word-break: break-word; }
+  #subsBody .sagent .snums { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  #subsBody .sagent .serr { flex: none; color: var(--status-warning); }
+  #subsBody .sagent .scrit { flex: none; color: var(--status-critical); font-weight: 600; }
   #promptsList { list-style: none; margin: 0; padding: 0; }
   #promptsList li {
     display: flex; gap: 10px; align-items: baseline; padding: 6px 0;
@@ -383,6 +404,7 @@
       <button data-tab="timeline" role="tab"></button>
       <button data-tab="table" role="tab"></button>
       <button data-tab="prompts" role="tab"></button>
+      <button data-tab="subagents" role="tab" class="hidden"></button>
       <button data-tab="usage" role="tab"></button>
       <button data-tab="diff" role="tab"></button>
       <button data-tab="search" role="tab"></button>
@@ -402,6 +424,11 @@
     <div class="card hidden" id="promptsCard" data-panel="prompts">
       <h2 id="promptsTitle"></h2>
       <ol id="promptsList"></ol>
+    </div>
+
+    <div class="card hidden" id="subsCard" data-panel="subagents">
+      <h2 id="subsTitle"></h2>
+      <div id="subsBody"></div>
     </div>
 
     <div class="card hidden" id="usageCard" data-panel="usage">
@@ -465,6 +492,22 @@ const I18N = {
     kinds: { prompt: 'prompt', assistant: 'assistant', tool: 'tool', result: 'result' },
     heatTitle: 'Activity — last 12 months (billed tokens/day)',
     barsTitle: 'Daily billed tokens — last 30 days',
+    tabSubs: 'Subagents',
+    subsTitle: (n) => `Subagents — ${n}`,
+    sub: {
+      note: 'These ran in transcripts of their own, so none of it appears in the session totals above.',
+      totals: (t, k) => `${t.agents} agents · ${t.turns} turns · ${t.toolCalls} tool calls · ${k} billed tokens`,
+      spawnedAt: (n) => `turn ${n}`,
+      unplaced: 'not placed on the timeline',
+      workflow: (id) => `workflow ${id}`,
+      agents: (n) => (n === 1 ? '1 agent' : `${n} agents`),
+      stats: (t, c, k) => `${t} turns · ${c} calls · ${k}`,
+      errors: (n) => (n === 1 ? '1 tool error' : `${n} tool errors`),
+      inline: 'inline sidechain',
+      none: 'This session spawned no subagents.',
+      loadError: (m) => `Failed to load subagents: ${m}`,
+      spawnedHere: (n) => `⧉ spawned ${n === 1 ? 'a subagent' : n + ' subagents'} — see the Subagents tab`,
+    },
     tabDiff: 'Compare',
     diffTitle: 'Session comparison — A is the current session',
     d: {
@@ -528,18 +571,21 @@ const I18N = {
       'token-spike': (p) => `Context +${p.deltaK}k in one turn`,
       'cache-thrash': (p) => `${p.count} turns with zero cache hits`,
       'file-churn': (p) => `Same file edited ${p.count}×`,
+      'intent-drift': () => 'Edits drifted off the prompt',
       'refusal': () => 'Model refusal',
       'stalled-call': (p) => `${p.count} call(s) never returned`,
       'api-error': () => 'API/provider error',
       'custom': (p) => p.name,
     },
+    conv: { converging: 'hint: results still changing (may be converging)', spinning: 'hint: identical results each pass (looks stuck)' },
     flagDetails: {
-      'loop': (p) => `Repeated ${p.repeats}× (${p.span} calls): ${p.gram}`,
+      'loop': (p) => `Repeated ${p.repeats}× (${p.span} calls): ${p.gram}` + (p.converging ? ` — ${T().conv[p.converging]}` : ''),
       'error-streak': (p) => `Starting with ${p.firstSig}`,
       'context-bloat': (p) => `${p.name}: ${p.summary}`,
       'token-spike': (p) => `${p.fromK}k → ${p.toK}k`,
       'cache-thrash': () => 'Full input re-read each turn',
       'file-churn': (p) => p.path,
+      'intent-drift': (p) => `${p.files} — started on ${p.anchors}`,
       'refusal': () => 'stop_reason: refusal — the request was declined',
       'stalled-call': (p) => `First: ${p.first}`,
       'api-error': (p) => `${p.name}: ${p.match}`,
@@ -571,6 +617,22 @@ const I18N = {
     kinds: { prompt: 'プロンプト', assistant: '応答', tool: 'ツール', result: '結果' },
     heatTitle: 'アクティビティ — 直近12ヶ月(日別課金トークン)',
     barsTitle: '日別課金トークン — 直近30日',
+    tabSubs: 'サブエージェント',
+    subsTitle: (n) => `サブエージェント — ${n}件`,
+    sub: {
+      note: 'これらは別のトランスクリプトで実行されたため、上のセッション合計には一切含まれていません。',
+      totals: (t, k) => `${t.agents}エージェント · ${t.turns}ターン · ツール呼び出し${t.toolCalls}回 · 課金トークン${k}`,
+      spawnedAt: (n) => `ターン ${n}`,
+      unplaced: 'タイムライン上の位置を特定できず',
+      workflow: (id) => `ワークフロー ${id}`,
+      agents: (n) => `${n}エージェント`,
+      stats: (t, c, k) => `${t}ターン · ${c}呼び出し · ${k}`,
+      errors: (n) => `ツールエラー${n}件`,
+      inline: 'インライン側鎖',
+      none: 'このセッションではサブエージェントは起動されていません。',
+      loadError: (m) => `サブエージェントの読み込みに失敗しました: ${m}`,
+      spawnedHere: (n) => `⧉ ここで${n}件のサブエージェントを起動 — サブエージェントタブを参照`,
+    },
     tabDiff: '比較',
     diffTitle: 'セッション比較 — A は表示中のセッション',
     d: {
@@ -634,18 +696,21 @@ const I18N = {
       'token-spike': (p) => `コンテキスト+${p.deltaK}k/ターン`,
       'cache-thrash': (p) => `${p.count}ターン キャッシュヒットなし`,
       'file-churn': (p) => `同一ファイルを${p.count}回編集`,
+      'intent-drift': () => '編集対象がプロンプトから逸脱',
       'refusal': () => 'モデルによる拒否',
       'stalled-call': (p) => `結果未返却の呼び出し ${p.count}件`,
       'api-error': () => 'API/プロバイダエラー',
       'custom': (p) => p.name,
     },
+    conv: { converging: 'ヒント: 結果が毎回変化(収束しつつある可能性)', spinning: 'ヒント: 毎回同じ結果(停滞している可能性)' },
     flagDetails: {
-      'loop': (p) => `同一パターンを${p.repeats}回反復(${p.span}回の呼び出し): ${p.gram}`,
+      'loop': (p) => `同一パターンを${p.repeats}回反復(${p.span}回の呼び出し): ${p.gram}` + (p.converging ? ` — ${T().conv[p.converging]}` : ''),
       'error-streak': (p) => `起点: ${p.firstSig}`,
       'context-bloat': (p) => `${p.name}: ${p.summary}`,
       'token-spike': (p) => `${p.fromK}k → ${p.toK}k`,
       'cache-thrash': () => '毎ターン全入力を再読込',
       'file-churn': (p) => p.path,
+      'intent-drift': (p) => `${p.files} — 起点は ${p.anchors}`,
       'refusal': () => 'stop_reason: refusal — リクエストが拒否されました',
       'stalled-call': (p) => `最初: ${p.first}`,
       'api-error': (p) => `${p.name}: ${p.match}`,
@@ -670,10 +735,11 @@ let pollTimer = null;
 let USAGE = null;       // /api/usage payload (fetched when the tab opens)
 let DIFF = null;        // /api/diff payload for the current A/B pair
 let SEARCH = null;      // /api/search payload
+let SUBS = null;        // /api/subagents payload — fetched per session, not per poll
 let PROJECTS = [];      // grouped session list from /api/sessions
 let SESSIONLIST = [];   // flat session list for the compare picker
 let TAB = localStorage.getItem('agentfdr.tab') || 'timeline';
-const TAB_ICONS = { timeline: '🛫', table: '📋', prompts: '💬', usage: '📊', diff: '⚖️', search: '🔍' };
+const TAB_ICONS = { timeline: '🛫', table: '📋', prompts: '💬', subagents: '⧉', usage: '📊', diff: '⚖️', search: '🔍' };
 
 const slugLabel = (slug) => slug.replace(/^-/, '').replace(/-/g, '/');
 const sessionMatches = (s, label, q) =>
@@ -963,6 +1029,7 @@ async function init() {
     if (USAGE) renderUsage();
     if (DIFF) renderDiff();
     if (SEARCH) renderSearch();
+    if (SUBS) renderSubagents();
   });
   for (const btn of document.querySelectorAll('#tabs button')) {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
@@ -1059,6 +1126,9 @@ async function poll(force = false) {
       selectedTurn = followTail ? MODEL.turns.length - 1 : Math.min(selectedTurn, MODEL.turns.length - 1);
     }
     render();
+    // A live session can spawn agents as it runs; the endpoint is stamp-cached,
+    // so re-asking only costs anything when something actually changed.
+    loadSubagents(id);
     if (followTail && MODEL.turns.length) scrollToTurn(MODEL.turns.length - 1);
   } catch {
     // transient (server restarting, fs race) — next tick retries
@@ -1566,7 +1636,7 @@ function setTabLabel(btn, label, count) {
 }
 function applyChrome() {
   document.documentElement.lang = LANG;
-  const tabLabels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff, search: T().tabSearch };
+  const tabLabels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, subagents: T().tabSubs, usage: T().usageView, diff: T().tabDiff, search: T().tabSearch };
   for (const btn of document.querySelectorAll('#tabs button')) {
     setTabLabel(btn, tabLabels[btn.dataset.tab]);
   }
@@ -1605,7 +1675,9 @@ async function load(id) {
   }
   selectedTurn = null;
   DIFF = null; // A changed — any previous comparison is stale
+  SUBS = null;
   render();
+  loadSubagents(id); // separate transcripts, separate (lazy) request
   if (TAB === 'diff') renderDiffPicker();
 }
 
@@ -1625,11 +1697,15 @@ function render() {
 
 /** Tab labels get lightweight counts so you know what's behind them. */
 function updateTabCounts() {
-  const counts = { table: MODEL.turns.length, prompts: MODEL.prompts.length };
-  const labels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, usage: T().usageView, diff: T().tabDiff, search: T().tabSearch };
+  const nSubs = SUBS?.agents?.length ?? 0;
+  const counts = { table: MODEL.turns.length, prompts: MODEL.prompts.length, subagents: nSubs || undefined };
+  const labels = { timeline: T().tabTimeline, table: T().tableView, prompts: T().promptsView, subagents: T().tabSubs, usage: T().usageView, diff: T().tabDiff, search: T().tabSearch };
   for (const btn of document.querySelectorAll('#tabs button')) {
     setTabLabel(btn, labels[btn.dataset.tab], counts[btn.dataset.tab]);
+    // The subagent tab only exists for sessions that spawned some.
+    if (btn.dataset.tab === 'subagents') btn.classList.toggle('hidden', !nSubs);
   }
+  if (!nSubs && TAB === 'subagents') switchTab('timeline');
 }
 
 function renderMeta() {
@@ -2113,6 +2189,108 @@ function row(tt, color, value, label) {
   tt.appendChild(r);
 }
 
+// ---------- subagents (work that happened in transcripts of its own) ----------
+/** Jump the timeline to a turn — the one move every list in here shares. */
+function jumpToTurn(turn) {
+  switchTab('timeline');
+  selectedTurn = turn;
+  renderDetail();
+  updateSelection();
+  scrollToTurn(turn);
+}
+
+async function loadSubagents(id) {
+  let payload;
+  try {
+    const res = await fetch('/api/subagents?id=' + encodeURIComponent(id));
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'HTTP ' + res.status);
+    payload = data;
+  } catch (err) {
+    payload = { agents: [], totals: null, error: err.message || String(err) };
+  }
+  // The session may have changed while this was in flight — applying it then
+  // would hang session A's agents off session B's turns.
+  if (!MODEL || $('sessionSelect').value !== id) return;
+  SUBS = payload;
+  renderSubagents();
+  updateTabCounts();
+  renderDetail(); // a selected turn may have spawned some of them
+}
+
+function renderSubagents() {
+  const body = $('subsBody');
+  const L = T().sub;
+  const agents = SUBS?.agents ?? [];
+  body.textContent = '';
+  $('subsTitle').textContent = T().subsTitle(agents.length);
+  if (SUBS?.error) {
+    add(body, 'div', 'snote', L.loadError(SUBS.error));
+    return;
+  }
+  if (!agents.length) {
+    add(body, 'div', 'snote', L.none);
+    return;
+  }
+  add(body, 'div', 'snote', L.note);
+  add(body, 'div', 'stotals', L.totals(SUBS.totals, kTok(SUBS.totals.billedTokens)));
+
+  // Agents spawned by agents hang under their parent; everything else hangs
+  // under the turn it came from, grouped by workflow when it belongs to one.
+  const byId = new Map(agents.map((n) => [n.id, n]));
+  const kids = new Map();
+  for (const n of agents) {
+    if (n.parentId && byId.has(n.parentId)) {
+      if (!kids.has(n.parentId)) kids.set(n.parentId, []);
+      kids.get(n.parentId).push(n);
+    }
+  }
+  const roots = agents.filter((n) => !(n.parentId && byId.has(n.parentId)));
+
+  let group = null;
+  for (const n of roots) {
+    const key = (n.turn ?? 'x') + '|' + (n.workflow ?? '');
+    if (!group || group.key !== key) {
+      group = { key, turn: n.turn, workflow: n.workflow, count: 0 };
+      const head = add(body, 'div', 'sgroup');
+      if (n.turn != null) {
+        const btn = document.createElement('button');
+        btn.textContent = 't' + n.turn;
+        btn.addEventListener('click', () => jumpToTurn(n.turn));
+        head.appendChild(btn);
+        add(head, 'span', '', L.spawnedAt(n.turn));
+      } else {
+        add(head, 'span', '', L.unplaced);
+      }
+      if (n.workflow) add(head, 'span', '', '· ' + L.workflow(n.workflow));
+      group.countEl = add(head, 'span', '', '');
+    }
+    group.count += 1 + countKids(n, kids);
+    group.countEl.textContent = '· ' + L.agents(group.count);
+    renderAgentRow(body, n, kids, 0, L);
+  }
+}
+
+function countKids(node, kids) {
+  return (kids.get(node.id) ?? []).reduce((a, k) => a + 1 + countKids(k, kids), 0);
+}
+
+function renderAgentRow(body, n, kids, depth, L) {
+  const row = add(body, 'div', 'sagent');
+  row.style.paddingLeft = 14 + depth * 18 + 'px';
+  add(row, 'span', 'stype', n.inline ? L.inline : n.type);
+  add(row, 'span', 'sdesc', (depth ? '↳ ' : '') + (n.description || n.id));
+  if (n.summary.toolErrors) add(row, 'span', 'serr', L.errors(n.summary.toolErrors));
+  if (n.summary.critical) add(row, 'span', 'scrit', '● ' + n.summary.critical);
+  add(row, 'span', 'snums', L.stats(n.summary.turns, n.summary.toolCalls, kTok(n.summary.billedTokens)));
+  // Inline sidechains ARE on the timeline; clicking one goes to its first turn.
+  if (n.inline && n.turnStart != null) {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', () => jumpToTurn(n.turnStart));
+  }
+  for (const k of kids.get(n.id) ?? []) renderAgentRow(body, k, kids, depth + 1, L);
+}
+
 // ---------- prompts card (the session's structure at a glance) ----------
 function renderPrompts() {
   const list = $('promptsList');
@@ -2196,6 +2374,15 @@ function renderDetail() {
   navBtn(head, L.detail.prev, () => step(-1), selectedTurn > 0);
   navBtn(head, L.detail.next, () => step(1), selectedTurn < MODEL.turns.length - 1);
   navBtn(head, L.detail.close, () => { selectedTurn = null; renderDetail(); updateSelection(); }, true);
+
+  // Work this turn handed off to subagents happens in other transcripts — say
+  // so here, where the turn's own numbers would otherwise look complete.
+  const spawned = (SUBS?.agents ?? []).filter((a) => a.turn === t.index && !a.inline);
+  if (spawned.length) {
+    const link = add(card, 'div', '', L.sub.spawnedHere(spawned.length));
+    link.style.cssText = 'font-size:12px;color:var(--text-muted);cursor:pointer;margin-bottom:4px';
+    link.addEventListener('click', () => switchTab('subagents'));
+  }
 
   const usage = add(card, 'div', '');
   usage.style.cssText = 'display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--text-secondary);margin-bottom:4px';

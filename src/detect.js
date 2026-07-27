@@ -18,6 +18,7 @@ export function detect(model, config = {}) {
     ['token-spike', () => detectTokenSpikes(model, th)],
     ['cache-thrash', () => detectCacheThrash(model, th)],
     ['file-churn', () => detectFileChurn(model, th)],
+    ['intent-drift', () => detectIntentDrift(model, th)],
     ['refusal', () => detectRefusals(model)],
     ['stalled-call', () => detectStalledCalls(model)],
     ['api-error', () => detectApiErrors(model)],
@@ -77,6 +78,55 @@ function isRetryShapedSpan(items) {
   });
 }
 
+const charsBucket = (chars) => (chars == null ? 'n' : chars < 200 ? 's' : chars < 5000 ? 'm' : 'l');
+
+// English fallback for the convergence hint (i18n.js re-renders it per language).
+const CONVERGENCE_EN = {
+  converging: 'hint: results still changing (may be converging)',
+  spinning: 'hint: identical results each pass (looks stuck)',
+};
+
+/**
+ * A HINT — never an all-clear — about whether a flagged loop looks like it's
+ * making progress or spinning in place. We still flag the loop; this only
+ * tells the reader which way to lean when they open it. Judged from the tool
+ * RESULTS across periods (the signatures are identical by definition — that's
+ * what made it a loop — so only the outcomes carry signal):
+ *   - errors thinning out over the run, or
+ *   - result shapes that keep changing (error text differs, output size moves)
+ * read as "converging"; period after period of the exact same outcome reads as
+ * "spinning". Undecidable when results weren't recorded.
+ *
+ * Ties break toward "spinning" on purpose: the loop was flagged, and a hint
+ * that talks the reader out of looking is worse than one that doesn't.
+ * Returns 'converging' | 'spinning' | null.
+ */
+function loopConvergence(span, n) {
+  const repeats = span.length / n;
+  if (repeats < 2) return null;
+  const periodSigs = [];
+  const errPerPeriod = [];
+  let sawResult = false;
+  for (let r = 0; r < repeats; r++) {
+    const calls = span.slice(r * n, (r + 1) * n).map((s) => s.call);
+    let errs = 0;
+    const parts = calls.map((c) => {
+      if (!c.result) return '-';
+      sawResult = true;
+      if (c.result.isError) errs++;
+      return (c.result.isError ? 'E' : 'o') + charsBucket(c.result.chars) + ':' + (c.result.snippet ?? '').slice(0, 24);
+    });
+    periodSigs.push(parts.join('|'));
+    errPerPeriod.push(errs);
+  }
+  if (!sawResult) return null; // nothing observable to judge
+  const uniqueSigs = new Set(periodSigs).size;
+  if (uniqueSigs === 1) return 'spinning'; // identical outcome every single period
+  const errorsThinning = errPerPeriod[repeats - 1] < errPerPeriod[0];
+  const resultsMoving = uniqueSigs >= Math.ceil(repeats * 0.6);
+  return errorsThinning || resultsMoving ? 'converging' : 'spinning';
+}
+
 /**
  * Loop: the same n-gram of tool signatures repeated >= loopRepeats times
  * consecutively (n = 1..4), covering at least loopMinCalls calls. Grams that
@@ -109,12 +159,14 @@ export function detectToolLoops(model, th = DEFAULT_THRESHOLDS, suppress = []) {
         if (!already && !legit) {
           for (let k = 0; k < span; k++) covered.add(i + k);
           const gram = gramSigs.join(' → ');
+          const converging = loopConvergence(seq.slice(i, i + span), n);
           flags.push({
             type: 'loop',
             severity: 'critical',
             title: `Tool loop ×${repeats}`,
-            detail: `Repeated ${repeats}× (${span} calls): ${gram}`,
-            params: { repeats, span, gram },
+            detail: `Repeated ${repeats}× (${span} calls): ${gram}` +
+              (converging ? ` — ${CONVERGENCE_EN[converging]}` : ''),
+            params: { repeats, span, gram, ...(converging ? { converging } : {}) },
             turnStart: seq[i].turn,
             turnEnd: seq[i + span - 1].turn,
           });
@@ -258,6 +310,161 @@ export function detectFileChurn(model, th = DEFAULT_THRESHOLDS) {
         turnEnd: c.last,
       });
     }
+  }
+  return flags;
+}
+
+// --- intent drift ----------------------------------------------------------
+
+const PATH_SEP_RE = /[/\\]/;
+const baseOf = (p) => p.split(PATH_SEP_RE).pop() || p;
+const dirOf = (p) => p.split(PATH_SEP_RE).slice(0, -1).join('/');
+// Everything before the first dot: "detect.test.js" and "detect.js" share the
+// stem "detect", which is what makes a file and its test the same work.
+const stemOf = (b) => b.split('.')[0];
+
+/** Every path-shaped argument a call touched, lowercased. */
+function callPaths(call) {
+  const input = call.input ?? {};
+  return [input.file_path, input.notebook_path, input.path]
+    .filter((v) => typeof v === 'string' && v)
+    .map((v) => v.toLowerCase());
+}
+
+/**
+ * Words in the prompt that could name a file: whole tokens, their path
+ * segments, and the stem of anything filename-shaped. Deliberately generous —
+ * every extra term can only make drift LESS likely to be flagged.
+ */
+function promptTerms(text) {
+  const terms = new Set();
+  for (const m of (text ?? '').toLowerCase().matchAll(/[a-z0-9_.\-/\\]{3,}/g)) {
+    terms.add(m[0]);
+    for (const seg of m[0].split(PATH_SEP_RE)) {
+      if (seg.length < 3) continue;
+      terms.add(seg);
+      terms.add(stemOf(seg));
+    }
+  }
+  return terms;
+}
+
+/**
+ * "Related" is answered generously, because the cost of a false drift flag is
+ * higher than the cost of a missed one: the same file, the same directory (in
+ * either direction — a subdirectory of the work area still counts), the same
+ * filename stem as something in the footprint (src/detect.js and
+ * test/detect.test.js are one piece of work, not two), or a name the prompt
+ * itself mentioned.
+ */
+function isRelatedPath(path, anchors, terms) {
+  if (anchors.paths.has(path)) return true;
+  const dir = dirOf(path);
+  for (const d of anchors.dirs) {
+    if (d === dir || (d && dir.startsWith(d + '/')) || (dir && d.startsWith(dir + '/'))) return true;
+  }
+  const base = baseOf(path);
+  const stem = stemOf(base);
+  if (stem.length >= 3 && anchors.stems.has(stem)) return true;
+  return terms.has(base) || terms.has(stem);
+}
+
+const namesOf = (paths, max = 3) => {
+  const names = [...new Set(paths.map(baseOf))];
+  return names.slice(0, max).join(', ') + (names.length > max ? ` +${names.length - max}` : '');
+};
+
+/**
+ * Intent drift: inside one prompt's stretch of turns, the EDITS walk away from
+ * both the prompt and the files that stretch started on, and stay away.
+ *
+ * The baseline is the footprint of the first driftAnchorTurns file-touching
+ * turns after the prompt — what the agent reached for when the request was
+ * still fresh. From there on, an editing turn whose every path is unrelated to
+ * that footprint and to the prompt's own words counts as drifted; a single
+ * related edit means it's back on task and resets the count. Turns that only
+ * read or search are neutral: looking around is not drifting.
+ *
+ * Only a drift that is still going when the next prompt arrives is reported.
+ * An excursion the agent comes back from is how normal work looks — it's the
+ * departure that never returns that answers "when did this stop being my task".
+ *
+ * A warning, not a verdict — a genuinely cross-cutting change can trip it.
+ * Raise driftEditTurns if your work is routinely wide.
+ */
+export function detectIntentDrift(model, th = DEFAULT_THRESHOLDS) {
+  const main = model.turns.filter((t) => !t.isSidechain);
+  const prompts = (model.prompts ?? []).filter((p) => p.text);
+  const flags = [];
+
+  for (let pi = 0; pi < prompts.length; pi++) {
+    const after = prompts[pi].afterTurn ?? -1;
+    const until = pi + 1 < prompts.length ? (prompts[pi + 1].afterTurn ?? Infinity) : Infinity;
+    const segment = main.filter((t) => t.index > after && t.index <= until);
+    if (segment.length < th.driftAnchorTurns + th.driftEditTurns) continue;
+
+    // Establish the footprint from the opening turns: at least driftAnchorTurns
+    // of them, and always through the first turn that actually touched a file —
+    // otherwise a segment that opens with a few pathless turns would spend its
+    // anchor window on nothing and adopt the drift itself as the baseline.
+    const anchorPaths = new Set();
+    let j = 0;
+    for (; j < segment.length; j++) {
+      segment[j].toolCalls.flatMap(callPaths).forEach((p) => anchorPaths.add(p));
+      if (j + 1 >= th.driftAnchorTurns && anchorPaths.size) {
+        j++;
+        break;
+      }
+    }
+    // No footprint means nothing to drift from — say nothing rather than guess.
+    if (!anchorPaths.size) continue;
+    const terms = promptTerms(prompts[pi].text);
+    // Intent drift needs evidence of intent. If nothing the segment opened on
+    // is anything the prompt named, then either the prompt carried no target
+    // ("続けて", "continue", a pasted URL, a harness notification) or the work
+    // was already under way — and a footprint we can't tie to the request is
+    // not a baseline worth measuring departures from.
+    if (![...anchorPaths].some((p) => terms.has(baseOf(p)) || terms.has(stemOf(baseOf(p))))) continue;
+    const anchors = {
+      paths: anchorPaths,
+      dirs: new Set([...anchorPaths].map(dirOf)),
+      stems: new Set([...anchorPaths].map((p) => stemOf(baseOf(p)))),
+    };
+
+    let streak = 0;
+    let first = null;
+    let last = null;
+    let drifted = [];
+    for (; j < segment.length; j++) {
+      const edits = segment[j].toolCalls
+        .filter((c) => WRITE_TOOL_RE.test(c.name))
+        .flatMap(callPaths);
+      if (!edits.length) continue; // reading/searching is not drifting
+      if (edits.some((p) => isRelatedPath(p, anchors, terms))) {
+        streak = 0; // back on task: whatever that was, it was an excursion
+        first = null;
+        drifted = [];
+        continue;
+      }
+      streak++;
+      first ??= segment[j].index;
+      last = segment[j].index;
+      drifted.push(...edits);
+    }
+    if (streak < th.driftEditTurns) continue;
+
+    const files = namesOf(drifted);
+    const anchorNames = namesOf([...anchorPaths]);
+    const prompt = prompts[pi].text.replace(/\s+/g, ' ').trim().slice(0, 60);
+    flags.push({
+      type: 'intent-drift',
+      severity: 'warning',
+      title: 'Edits drifted off the prompt',
+      detail: `From turn ${first}: ${files} — unrelated to the prompt ("${prompt}") or to where this stretch started (${anchorNames})`,
+      params: { turn: first, turns: streak, files, anchors: anchorNames, prompt },
+      turnStart: first,
+      turnEnd: last,
+    });
   }
   return flags;
 }

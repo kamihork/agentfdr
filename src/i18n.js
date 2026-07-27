@@ -34,6 +34,13 @@ const STRINGS = {
     toolsLabel: 'Tool calls by tool',
     filesBoth: 'Files edited in both',
     filesOnly: (x) => `Files edited only in ${x}`,
+    subagentsLabel: 'Subagents',
+    subagentTotals: (t, k) =>
+      `Work done in transcripts of their own — not counted in the session totals above: ` +
+      `${t.turns} turns, ${t.calls} tool calls, ${k(t.billed)} billed tokens` +
+      (t.critical ? `, ${t.critical} critical anomalies` : ''),
+    subCols: ['spawned at', 'agent', 'turns', 'calls', 'billed', 'anomalies'],
+    andMore: (n) => `… +${n} more`,
     anomalies: 'Anomalies',
     noAnomalies: '**No anomalies detected.** (That means the heuristics found nothing — not that nothing went wrong.)',
     turnRange: (a, b) => (a === b ? `turn ${a}` : `turns ${a}–${b}`),
@@ -80,6 +87,13 @@ const STRINGS = {
     toolsLabel: 'ツール別呼び出し数',
     filesBoth: '両方で編集されたファイル',
     filesOnly: (x) => `${x} のみで編集されたファイル`,
+    subagentsLabel: 'サブエージェント',
+    subagentTotals: (t, k) =>
+      `別トランスクリプトで実行された作業(上のセッション合計には含まれません): ` +
+      `${t.turns}ターン、ツール呼び出し${t.calls}回、課金トークン${k(t.billed)}` +
+      (t.critical ? `、重大な異常${t.critical}件` : ''),
+    subCols: ['起点', 'エージェント', 'ターン', '呼び出し', '課金トークン', '異常'],
+    andMore: (n) => `… ほか${n}件`,
     anomalies: '検知された異常',
     noAnomalies: '**異常は検知されませんでした。**(ヒューリスティックが何も見つけなかっただけで、問題がなかったという意味ではありません)',
     turnRange: (a, b) => (a === b ? `ターン ${a}` : `ターン ${a}–${b}`),
@@ -107,26 +121,49 @@ export function t(lang) {
 
 // Flag titles/details built from structured params so every language renders
 // from the same data. Falls back to the English strings detect.js embeds.
+// Convergence is a HINT appended to a loop's detail line, never an all-clear:
+// the loop is flagged either way, this only says which way to lean.
+const CONVERGENCE = {
+  en: {
+    converging: 'hint: results still changing (may be converging)',
+    spinning: 'hint: identical results each pass (looks stuck)',
+  },
+  ja: {
+    converging: 'ヒント: 結果が毎回変化(収束しつつある可能性)',
+    spinning: 'ヒント: 毎回同じ結果(停滞している可能性)',
+  },
+};
+
+const conv = (p, lang) => (p.converging ? ` — ${CONVERGENCE[lang][p.converging]}` : '');
+
 const FLAG_FMT = {
   en: {
-    'loop': (p) => [`Tool loop ×${p.repeats}`, `Repeated ${p.repeats}× (${p.span} calls): ${p.gram}`],
+    'loop': (p) => [`Tool loop ×${p.repeats}`, `Repeated ${p.repeats}× (${p.span} calls): ${p.gram}` + conv(p, 'en')],
     'error-streak': (p) => [`${p.count} consecutive tool errors`, `Starting with ${p.firstSig}`],
     'context-bloat': (p) => [`Huge tool result (${p.kchars}k chars)`, `${p.name}: ${p.summary}`],
     'token-spike': (p) => [`Context jumped +${p.deltaK}k tokens`, `${p.fromK}k → ${p.toK}k in one turn`],
     'cache-thrash': (p) => [`${p.count} turns with zero cache hits`, 'Full input re-read each turn — check for context churn'],
     'file-churn': (p) => [`Same file edited ${p.count}×`, p.path],
+    'intent-drift': (p) => [
+      'Edits drifted off the prompt',
+      `From turn ${p.turn}: ${p.files} — unrelated to the prompt ("${p.prompt}") or to where this stretch started (${p.anchors})`,
+    ],
     'refusal': () => ['Model refusal', 'stop_reason: refusal — the request was declined'],
     'stalled-call': (p) => [`${p.count} tool call(s) never returned`, `First: ${p.first}`],
     'api-error': (p) => ['API/provider error', `${p.name}: ${p.match}`],
     'custom': (p) => [p.name, `matched: ${p.match}`],
   },
   ja: {
-    'loop': (p) => [`ツールループ ×${p.repeats}`, `同一パターンを${p.repeats}回反復(${p.span}回の呼び出し): ${p.gram}`],
+    'loop': (p) => [`ツールループ ×${p.repeats}`, `同一パターンを${p.repeats}回反復(${p.span}回の呼び出し): ${p.gram}` + conv(p, 'ja')],
     'error-streak': (p) => [`ツールエラーが${p.count}回連続`, `起点: ${p.firstSig}`],
     'context-bloat': (p) => [`巨大なツール結果(${p.kchars}k文字)`, `${p.name}: ${p.summary}`],
     'token-spike': (p) => [`コンテキストが+${p.deltaK}kトークン急増`, `1ターンで ${p.fromK}k → ${p.toK}k`],
     'cache-thrash': (p) => [`${p.count}ターン連続でキャッシュヒットなし`, `毎ターン全入力を再読込 — コンテキストの入れ替わりを確認`],
     'file-churn': (p) => [`同一ファイルを${p.count}回編集`, p.path],
+    'intent-drift': (p) => [
+      '編集対象がプロンプトから逸脱',
+      `ターン${p.turn}以降: ${p.files} — プロンプト(「${p.prompt}」)にも、この区間の起点(${p.anchors})にも無関係`,
+    ],
     'refusal': () => ['モデルによる拒否', 'stop_reason: refusal — リクエストが拒否されました'],
     'stalled-call': (p) => [`結果が返らないツール呼び出し ${p.count}件`, `最初: ${p.first}`],
     'api-error': (p) => ['API/プロバイダエラー', `${p.name}: ${p.match}`],

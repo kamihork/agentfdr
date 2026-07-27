@@ -3,6 +3,7 @@ import { probeTitle } from './parser.js';
 import { parseAnySessionFile, probeCodexTitle } from './codex.js';
 import { detect } from './detect.js';
 import { blameReport, fmtMs } from './report.js';
+import { buildSubagentTree } from './subagents.js';
 import { startServer, openInBrowser } from './server.js';
 import { resolveLang, t } from './i18n.js';
 import { estimateSessionCost, fmtUsd } from './cost.js';
@@ -188,12 +189,13 @@ function cmdBlame(ref, asJson, lang, config) {
   const { file } = resolveSession(ref);
   const model = parseAnySessionFile(file);
   const flags = detect(model, config);
+  const subagents = buildSubagentTree(model, file, config);
   if (asJson) {
     const cost = estimateSessionCost(model);
-    console.log(JSON.stringify({ session: model.session, totals: model.totals, cost, flags }, null, 2));
+    console.log(JSON.stringify({ session: model.session, totals: model.totals, cost, flags, subagents }, null, 2));
     return;
   }
-  console.log(blameReport(model, flags, lang));
+  console.log(blameReport(model, flags, lang, subagents));
 }
 
 function cmdSearch(query, asJson) {

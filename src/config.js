@@ -29,11 +29,13 @@ export const DEFAULT_THRESHOLDS = {
   tokenSpikeRatio: 1.6,
   cacheThrashTurns: 2,
   fileChurnEdits: 6,
+  driftAnchorTurns: 3,   // file-touching turns after a prompt that define its footprint
+  driftEditTurns: 3,     // consecutive editing turns off that footprint before flagging
 };
 
 const DETECTOR_TYPES = [
   'loop', 'error-streak', 'context-bloat', 'token-spike',
-  'cache-thrash', 'file-churn', 'refusal', 'stalled-call', 'api-error',
+  'cache-thrash', 'file-churn', 'intent-drift', 'refusal', 'stalled-call', 'api-error',
 ];
 const CUSTOM_TARGETS = ['tool-results', 'assistant-text', 'both'];
 

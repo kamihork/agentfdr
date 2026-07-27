@@ -16,6 +16,7 @@ import { collectUsage } from './usage.js';
 import { parseTokenCount } from './assert.js';
 import { diffSessions } from './diff.js';
 import { buildDocs, searchSessions } from './search.js';
+import { buildSubagentTree, subagentTotals, subagentStamp } from './subagents.js';
 
 const UI_PATH = join(dirname(fileURLToPath(import.meta.url)), 'ui.html');
 
@@ -52,6 +53,11 @@ const usageCache = new Map(); // file -> { mtimeMs, size, lite }
 
 // Same idea for search: compact per-turn text docs, cached by (mtime, size).
 const searchCache = new Map(); // file -> { mtimeMs, size, docs, title }
+
+// Subagent transcripts are separate files; building the tree parses all of them
+// (a workflow can leave dozens behind), so it is lazy and cached by a stamp
+// over the main session AND every agent file.
+const subagentCache = new Map(); // file -> { stamp, payload }
 
 function loadDocsCached(file) {
   const st = statSync(file);
@@ -150,6 +156,24 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
         toolCalls: t.toolCalls.map(({ input, ...call }) => call),
       }));
       sendJson(res, 200, { ...model, turns, flags, cost, mtimeMs, sizeBytes: size, configPath: serverConfig.path });
+      return;
+    }
+    if (url.pathname === '/api/subagents') {
+      const ref = url.searchParams.get('id');
+      const { file } = resolveSession(ref || undefined);
+      const st = statSync(file);
+      const stamp = `${st.mtimeMs}-${st.size}|${subagentStamp(file)}`;
+      const hit = subagentCache.get(file);
+      if (hit?.stamp === stamp) {
+        sendJson(res, 200, hit.payload);
+        return;
+      }
+      const { model } = loadSession(file);
+      const agents = buildSubagentTree(model, file, serverConfig);
+      const payload = { agents, totals: subagentTotals(agents) };
+      subagentCache.set(file, { stamp, payload });
+      if (subagentCache.size > CACHE_MAX) subagentCache.delete(subagentCache.keys().next().value);
+      sendJson(res, 200, payload);
       return;
     }
     if (url.pathname === '/api/search') {
