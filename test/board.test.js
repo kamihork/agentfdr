@@ -6,10 +6,10 @@ import { join } from 'node:path';
 import {
   readRegistry, readTail, summarizeTail, classify, collectBoard, findOverlaps,
   buildSendCommands, sendToSession, resolveRepo, readHistoryIndex, readDesktopStore, readCliAccount,
-  cksum, tmuxSessionName, buildLaunch, launchSession, readRateLimits,
+  cksum, tmuxSessionName, buildLaunch, launchSession, readRateLimits, isSteerable,
 } from '../src/board.js';
 import { extractRateLimits, recordRateLimits, formatLine } from '../src/tap.js';
-import { isSameOrigin } from '../src/server.js';
+import { isSameOrigin, isLoopbackHost } from '../src/server.js';
 
 const T0 = Date.parse('2026-03-01T12:00:00Z');
 const ts = (i) => new Date(T0 + i * 1000).toISOString();
@@ -137,13 +137,18 @@ test('classify derives state from the transcript tail when the registry is silen
 
 // --- the board -----------------------------------------------------------------------
 
-test('collectBoard joins registry, transcript tail, history and overlaps', () => {
+test('collectBoard joins registry, transcript tail, history and overlaps', (t) => {
   const { home, transcript, registry, history, desktop, claudeJson } = fakeHome();
+  const prevDir = process.env.AGENTFDR_CLAUDE_DIR;
   process.env.AGENTFDR_CLAUDE_DIR = join(home, 'projects');
+  t.after(() => { if (prevDir == null) delete process.env.AGENTFDR_CLAUDE_DIR; else process.env.AGENTFDR_CLAUDE_DIR = prevDir; });
   const now = T0 + 60_000;
 
   transcript('-repo-app', 'sid-cli', LIVE_LINES);
-  registry(11, { sessionId: 'sid-cli', cwd: '/repo/app', name: 'app-1', status: 'busy', statusUpdatedAt: now - 30_000, tmux: 'claude-app:@1.%1', entrypoint: 'cli', kind: 'interactive' });
+  registry(11, { sessionId: 'sid-cli', cwd: '/repo/app', name: 'app-1', status: 'busy', statusUpdatedAt: now - 30_000, tmux: 'claude-app:@1.%1', entrypoint: 'cli', kind: 'interactive', startedAt: now - 60_000 });
+  // `claude -p` child of session 11: same pane -> shown, read-only, no overlap noise
+  transcript('-repo-app', 'sid-child', LIVE_LINES);
+  registry(15, { sessionId: 'sid-child', cwd: '/repo/app', name: 'child', status: 'busy', tmux: 'claude-app:@1.%1', entrypoint: 'sdk-cli', kind: 'interactive', startedAt: now - 1000 });
 
   // Same repo, different session, edits the same file -> overlap. Its window
   // holds no typed prompt (only a slash command) so the task falls back to history.
@@ -187,7 +192,10 @@ test('collectBoard joins registry, transcript tail, history and overlaps', () =>
     desktop: readDesktopStore(join(home, 'desktop')), cliAccount: readCliAccount(claudeJsonFile),
   });
 
-  assert.deepEqual(board.sessions.filter((s) => s.pid != null).map((s) => s.pid).sort(), [11, 12, 13]);
+  assert.deepEqual(board.sessions.filter((s) => s.pid != null).map((s) => s.pid).sort(), [11, 12, 13, 15]);
+  const child = board.sessions.find((s) => s.pid === 15);
+  assert.equal(child.controllable, false);
+  assert.equal(child.sharedPane, true);
   assert.deepEqual(board.sessions.filter((s) => s.parked).map((s) => s.sessionId).sort(), ['sid-other', 'sid-parked']);
   assert.deepEqual(board.accounts.cli, { email: 'me@example.com', accountUuid: ME, orgUuid: ORG });
   assert.deepEqual(board.accounts.desktop.map((a) => [a.accountUuid, a.email, a.sessions]).sort(), [[ME, 'me@example.com', 2], [OTHER, null, 1]]);
@@ -244,7 +252,7 @@ test('collectBoard joins registry, transcript tail, history and overlaps', () =>
   assert.ok(!board.recent.some((r) => r.id === 'sid-parked'));
 
   assert.equal(board.overlaps.length, 1);
-  assert.deepEqual(board.overlaps[0].pids.sort(), [11, 12]);
+  assert.deepEqual(board.overlaps[0].pids.sort(), [11, 12], 'the shared-pane child does not count as a second live editor');
   assert.deepEqual(board.overlaps[0].files, [{ file: '/repo/app/src/login.js', pids: [11, 12] }]);
 
   // The ended session AND the transcript whose process died both count as recent.
@@ -252,7 +260,6 @@ test('collectBoard joins registry, transcript tail, history and overlaps', () =>
   const ended = board.recent.find((r) => r.id === 'sid-ended');
   assert.equal(ended.project, 'app');
   assert.equal(ended.lastText, 'Docs written.');
-  delete process.env.AGENTFDR_CLAUDE_DIR;
 });
 
 test('findOverlaps ignores repos with a single session', () => {
@@ -303,10 +310,13 @@ test('buildSendCommands maps actions to keys and refuses everything else', () =>
 });
 
 test('sendToSession runs the tmux sequence for a live tmux session only', async () => {
+  const cli = { entrypoint: 'cli', kind: 'interactive' };
   const registry = [
-    { pid: 1, alive: true, tmux: 'claude-a:@1.%1' },
-    { pid: 2, alive: true, tmux: null },
-    { pid: 3, alive: false, tmux: 'claude-c:@3.%3' },
+    { pid: 1, alive: true, tmux: 'claude-a:@1.%1', status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: 5000, startedAt: 1, ...cli },
+    { pid: 2, alive: true, tmux: null, ...cli },
+    { pid: 3, alive: false, tmux: 'claude-c:@3.%3', ...cli },
+    // `claude -p` started from session 1: same pane, not the owner
+    { pid: 4, alive: true, tmux: 'claude-a:@1.%1', entrypoint: 'sdk-cli', kind: 'interactive', startedAt: 2 },
   ];
   const ran = [];
   const run = async (args) => { ran.push(args); };
@@ -318,6 +328,34 @@ test('sendToSession runs the tmux sequence for a live tmux session only', async 
   await assert.rejects(() => sendToSession(2, { text: 'hello' }, { registry, run }), /read-only/);
   await assert.rejects(() => sendToSession(3, { text: 'hello' }, { registry, run }), /no live session/);
   await assert.rejects(() => sendToSession(99, { text: 'hello' }, { registry, run }), /no live session/);
+  await assert.rejects(() => sendToSession(4, { text: 'hello' }, { registry, run }), /shares its pane/);
+  assert.equal(isSteerable(registry[0], registry), true);
+  assert.equal(isSteerable(registry[3], registry), false);
+
+  // Key presses are checked against the state the page displayed.
+  ran.length = 0;
+  const ok = await sendToSession(1, { action: 'approve', expect: { status: 'waiting', waitingFor: 'permission prompt', stateSince: 5000 } }, { registry, run, delayMs: 0 });
+  assert.equal(ok.sent, 'approve');
+  assert.deepEqual(ran, [['send-keys', '-t', 'claude-a:@1.%1', 'Enter']]);
+  ran.length = 0;
+  await assert.rejects(
+    () => sendToSession(1, { action: 'approve', expect: { status: 'waiting', waitingFor: 'permission prompt', stateSince: 4000 } }, { registry, run, delayMs: 0 }),
+    (err) => err.code === 'STATE_CHANGED', 'a newer dialog than the one clicked: refuse');
+  await assert.rejects(
+    () => sendToSession(1, { action: 'deny', expect: { status: 'busy', waitingFor: null } }, { registry, run, delayMs: 0 }),
+    /state changed/);
+  assert.equal(ran.length, 0, 'nothing was sent on refusal');
+});
+
+test('buildSendCommands strips control characters and uses a unique paste buffer', () => {
+  const [single] = buildSendCommands('s:@1.%1', { text: 'a\u001b[201~b\u0007c' });
+  assert.equal(single.at(-1), 'a[201~bc');
+  const a = buildSendCommands('s:@1.%1', { text: 'x\ny' });
+  const b = buildSendCommands('s:@1.%1', { text: 'x\ny' });
+  assert.notEqual(a[0][2], b[0][2], 'buffer names differ per call');
+  assert.equal(a[1][a[1].indexOf('-b') + 1], a[0][2]);
+  // non-ASCII directory names are legal tmux targets
+  assert.doesNotThrow(() => buildSendCommands('claude-日本語プロジェクト-123:@1.%1', { text: 'hi' }));
 });
 
 test('isSameOrigin: only the board page itself may drive sessions', () => {
@@ -331,6 +369,11 @@ test('isSameOrigin: only the board page itself may drive sessions', () => {
   assert.equal(isSameOrigin(req({ origin: 'http://localhost:4477', host: 'localhost:4477' })), true);
   assert.equal(isSameOrigin(req({ origin: 'http://evil.example', host: '127.0.0.1:4477' })), false);
   assert.equal(isSameOrigin(req({ host: '127.0.0.1:4477' })), false, 'no origin, no sec-fetch-site: not a browser page');
+  assert.equal(isLoopbackHost('127.0.0.1:4477'), true);
+  assert.equal(isLoopbackHost('[::1]:4477'), true);
+  assert.equal(isLoopbackHost('localhost'), true);
+  assert.equal(isLoopbackHost('evil.example:4477'), false);
+  assert.equal(isLoopbackHost(undefined), false);
 });
 
 // --- launching ------------------------------------------------------------------------
@@ -350,13 +393,23 @@ test('buildLaunch validates and quotes; only ever runs claude', () => {
   assert.equal(p.dir, dir);
   assert.equal(p.argv[0], 'new-session');
   assert.deepEqual(p.argv.slice(1, 6), ['-d', '-s', p.name, '-c', dir]);
-  assert.equal(p.command, `claude --model 'claude-sonnet-5' --continue 'it'\\''s a test\nline 2'`);
+  // The prompt gets a leading space: `claude update` would run the updater,
+  // `claude --version` is a flag; ` update` / ` --version` are prompts.
+  assert.equal(p.command, `claude --model 'claude-sonnet-5' --continue ' it'\\''s a test\nline 2'`);
+  assert.equal(buildLaunch({ dir, prompt: '--version' }).command, `claude ' --version'`);
   assert.throws(() => buildLaunch({ dir: '' }), /directory is required/);
   assert.throws(() => buildLaunch({ dir: join(dir, 'nope') }), /no such directory/);
   assert.throws(() => buildLaunch({ dir, model: 'x; rm -rf /' }), /plain model name/);
   assert.throws(() => buildLaunch({ dir, prompt: 'x'.repeat(20_001) }), /too long/);
   assert.equal(buildLaunch({ dir, name: 'custom-1' }).name, 'custom-1');
-  assert.notEqual(buildLaunch({ dir, name: 'bad name;' }).name, 'bad name;', 'unsafe names fall back to the convention');
+  assert.throws(() => buildLaunch({ dir, name: 'bad name;' }), /invalid session name/, 'unsafe names are an error, never a silent fallback');
+  // Non-ASCII directory: still a single safe token, still steerable.
+  const jp = join(dir, '日本語 プロジェクト.v2');
+  mkdirSync(jp);
+  const n = tmuxSessionName(jp);
+  assert.equal(n, `claude-日本語プロジェクト-v2-${cksum(jp)}`);
+  assert.equal(buildLaunch({ dir: jp }).name, n);
+  assert.equal(buildLaunch({ dir: jp, name: `${n}-2` }).name, `${n}-2`);
 });
 
 test('launchSession starts tmux, picks a free name, and waits for registration', async () => {

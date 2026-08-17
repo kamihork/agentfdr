@@ -433,12 +433,45 @@ export function classify(entry, tail, { now = Date.now() } = {}) {
 
 const tailCache = new Map(); // file -> { mtimeMs, size, summary }
 
+const HEAD_BYTES = 64 * 1024;
+const headTitleCache = new Map(); // file -> title|null (the head of a transcript does not change)
+
+/** `ai-title` lines are written early; when the tail window lost them, read the head once. */
+export function probeHeadTitle(file) {
+  if (headTitleCache.has(file)) return headTitleCache.get(file);
+  let title = null;
+  try {
+    const fd = openSync(file, 'r');
+    try {
+      const buf = Buffer.alloc(HEAD_BYTES);
+      const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
+      const text = buf.toString('utf8', 0, n);
+      const idx = text.indexOf('"ai-title"');
+      if (idx !== -1) {
+        const start = text.lastIndexOf('\n', idx) + 1;
+        const end = text.indexOf('\n', idx);
+        const rec = JSON.parse(text.slice(start, end === -1 ? undefined : end));
+        if (typeof rec.aiTitle === 'string' && rec.aiTitle) title = rec.aiTitle;
+      }
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    title = null;
+  }
+  headTitleCache.set(file, title);
+  if (headTitleCache.size > 256) headTitleCache.delete(headTitleCache.keys().next().value);
+  return title;
+}
+
 function loadTailCached(file, config) {
   const st = statSync(file);
   const hit = tailCache.get(file);
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.summary;
   const { text, truncated } = readTail(file);
   const summary = { ...summarizeTail(text, { truncated, config }), mtimeMs: st.mtimeMs, size: st.size };
+  if (!summary.model.session.title && truncated) summary.model.session.title = probeHeadTitle(file);
+  tailCache.delete(file); // LRU: re-insert at the end
   tailCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, summary });
   if (tailCache.size > 64) tailCache.delete(tailCache.keys().next().value);
   return summary;
@@ -548,7 +581,10 @@ export function collectBoard({
       kind: entry.kind,
       version: entry.version,
       tmux: entry.tmux,
-      controllable: Boolean(entry.tmux) && tmuxAvailable !== false,
+      controllable: tmuxAvailable !== false && isSteerable(entry, registry),
+      // A child process (claude -p, SDK) registered on the same pane as an
+      // interactive session: shown, but not steerable, not an "overlap".
+      sharedPane: Boolean(entry.tmux) && !isSteerable(entry, registry) && entry.alive,
       state,
       parked: parkedSession,
       waitingFor,
@@ -604,7 +640,7 @@ export function collectBoard({
     knownDirs,
     sessions,
     // Parked sessions have no process: they cannot be stepping on anything.
-    overlaps: findOverlaps(sessions.filter((s) => !s.parked)),
+    overlaps: findOverlaps(sessions.filter((s) => !s.parked && !s.sharedPane)),
     recent: recentEnded(projects, seenTranscripts, now),
   };
 }
@@ -789,9 +825,17 @@ export function cksum(str) {
 
 /** tmux session name for a directory, in the `claude-<slug>-<cksum>` convention. */
 export function tmuxSessionName(dir) {
-  const slug = basename(dir).replace(/[.:]/g, '-');
-  return `claude-${slug}-${cksum(dir)}`;
+  // tmux forbids ':' and '.' in session names; everything else the wrapper
+  // keeps as is (non-ASCII directory names included). Whitespace and shell
+  // metacharacters are dropped so the name stays a single safe token.
+  const slug = basename(dir).replace(/[.:]/g, '-').replace(/[^\p{L}\p{N}_-]/gu, '');
+  return `claude-${slug || 'dir'}-${cksum(dir)}`;
 }
+
+// Session names and pane targets: letters/digits of any script plus tmux's
+// own punctuation. Deliberately an allowlist — these strings reach tmux argv.
+const NAME_RE = /^[\p{L}\p{N}_.-]{1,80}$/u;
+const TARGET_RE = /^[\p{L}\p{N}_.@%:-]+$/u;
 
 const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
@@ -819,9 +863,14 @@ export function buildLaunch({ dir, prompt, model, resume, name } = {}) {
   if (prompt != null && prompt !== '') {
     if (typeof prompt !== 'string') throw new Error('prompt must be text');
     if (prompt.length > 20_000) throw new Error('prompt too long');
-    args.push(shellQuote(prompt.replace(/\r\n?/g, '\n')));
+    // `claude update` runs the updater and `claude --foo` is a flag; a leading
+    // space makes the argument a prompt no matter what it starts with
+    // (verified: `claude ' --version'` starts a conversation, `claude '--version'`
+    // prints the version). Claude Code trims it.
+    args.push(shellQuote(' ' + prompt.replace(/\r\n?/g, '\n')));
   }
-  const sessionName = name && /^[\w.-]{1,80}$/.test(name) ? name : tmuxSessionName(abs);
+  if (name != null && !NAME_RE.test(name)) throw new Error('invalid session name');
+  const sessionName = name ?? tmuxSessionName(abs);
   return { name: sessionName, dir: abs, command: args.join(' '), argv: ['new-session', '-d', '-s', sessionName, '-c', abs, args.join(' ')] };
 }
 
@@ -853,6 +902,21 @@ export async function launchSession(req, { run = tmux, waitMs = 8000, pollMs = 5
 
 // --- steering (tmux) ---------------------------------------------------------------------
 
+/**
+ * Only an interactive CLI process owns the pane it registered. `claude -p` /
+ * SDK children started from that session inherit the same tmux target; typing
+ * "into" them would land in the parent's prompt. When several registry
+ * entries share a pane, the interactive `cli` one (oldest first) is steerable.
+ */
+export function isSteerable(entry, registry) {
+  if (!entry.tmux || !entry.alive) return false;
+  if (entry.entrypoint !== 'cli' || entry.kind !== 'interactive') return false;
+  const owner = registry
+    .filter((e) => e.alive && e.tmux === entry.tmux && e.entrypoint === 'cli' && e.kind === 'interactive')
+    .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0) || a.pid - b.pid)[0];
+  return owner?.pid === entry.pid;
+}
+
 const KEY_ACTIONS = {
   approve: ['Enter'],   // permission dialogs default to "Yes"; Enter takes it
   deny: ['Escape'],     // Escape rejects a dialog / interrupts a running turn
@@ -865,7 +929,7 @@ const KEY_ACTIONS = {
  * Throws on anything the board should refuse. Exported for tests.
  */
 export function buildSendCommands(target, { text, action } = {}) {
-  if (typeof target !== 'string' || !/^[\w.@%:-]+$/.test(target)) throw new Error('session has no controllable tmux pane');
+  if (typeof target !== 'string' || !TARGET_RE.test(target)) throw new Error('session has no controllable tmux pane');
   if (action) {
     const keys = KEY_ACTIONS[action];
     if (!keys) throw new Error(`unknown action "${action}"`);
@@ -873,13 +937,17 @@ export function buildSendCommands(target, { text, action } = {}) {
   }
   if (typeof text !== 'string' || !text.trim()) throw new Error('nothing to send');
   if (text.length > 20_000) throw new Error('message too long');
-  const clean = text.replace(/\r\n?/g, '\n');
+  // Newlines and tabs are text; other control characters (including ESC,
+  // which could end a bracketed paste and turn the rest into keystrokes) are not.
+  const clean = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '');
   if (clean.includes('\n')) {
     // Multi-line: paste it as one buffer (bracketed paste, so newlines do not
-    // submit halfway), then press Enter separately.
+    // submit halfway), then press Enter separately. The buffer name is unique
+    // per call so concurrent sends cannot paste each other's text.
+    const buf = `agentfdr-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     return [
-      ['set-buffer', '-b', 'agentfdr', '--', clean],
-      ['paste-buffer', '-p', '-d', '-b', 'agentfdr', '-t', target],
+      ['set-buffer', '-b', buf, '--', clean],
+      ['paste-buffer', '-p', '-d', '-b', buf, '-t', target],
       ['send-keys', '-t', target, 'Enter'],
     ];
   }
@@ -922,6 +990,21 @@ export async function sendToSession(pid, req, { registry = readRegistry(), run =
   const entry = registry.find((e) => e.pid === Number(pid));
   if (!entry || !entry.alive) throw new Error(`no live session with pid ${pid}`);
   if (!entry.tmux) throw new Error('this session is not running in a tmux pane agentfdr can reach (Desktop app / background job) — it is read-only');
+  if (!isSteerable(entry, registry)) throw new Error('this process shares its pane with another session (e.g. `claude -p` started from it) — steer the owning session instead');
+  // A key press is only meaningful against the dialog/turn the user SAW. The
+  // page sends what it displayed; if the registry moved on since (dialog A
+  // answered, dialog B open), refuse rather than answer B with A's click.
+  if (req.action && req.expect) {
+    const e = req.expect;
+    const same = (e.status ?? null) === (entry.status ?? null) &&
+      (e.waitingFor ?? null) === (entry.waitingFor ?? null) &&
+      (e.stateSince == null || Number(e.stateSince) === (entry.statusUpdatedAt ?? entry.updatedAt ?? null));
+    if (!same) {
+      const err = new Error('the session\'s state changed since the board was drawn — nothing was sent; look again');
+      err.code = 'STATE_CHANGED';
+      throw err;
+    }
+  }
   const cmds = buildSendCommands(entry.tmux, req);
   for (let i = 0; i < cmds.length; i++) {
     if (i > 0 && cmds[i][0] === 'send-keys' && cmds[i].at(-1) === 'Enter') await sleep(delayMs);

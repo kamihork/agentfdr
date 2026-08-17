@@ -328,6 +328,10 @@ const I18N = {
     limitsUnknown: 'account unknown',
     tmuxOff: 'tmux is not running — steering is disabled',
     stopHint: 'Sends Esc: interrupts the running turn (or rejects an open dialog).',
+    sendEnter: 'Enter', sendEnterHint: 'Sends Enter to the open dialog: whatever it has highlighted (a question\'s first option, a plan approval\'s default) is chosen. Look at the pane if unsure.',
+    sendEsc: 'Esc', sendEscHint: 'Sends Esc: closes/rejects the open dialog.',
+    stateChanged: 'not sent — the session\'s state changed since this card was drawn; look again',
+    sharedPane: 'shares a pane', sharedPaneHint: 'This process (e.g. claude -p started from a session) shares the tmux pane of an interactive session — steer that session instead.',
     approveHint: 'Sends Enter: takes the highlighted (default) choice of the open dialog.',
     denyHint: 'Sends Esc: rejects the open dialog.',
   },
@@ -370,6 +374,10 @@ const I18N = {
     limitsUnknown: 'アカウント不明',
     tmuxOff: 'tmux が起動していないため指示は送れません',
     stopHint: 'Esc を送ります: 実行中のターンを中断（ダイアログが開いていれば拒否）。',
+    sendEnter: 'Enter', sendEnterHint: '開いているダイアログに Enter を送ります: 今ハイライトされている選択肢（質問なら先頭、プラン承認なら既定）が選ばれます。不安ならペインを見てから。',
+    sendEsc: 'Esc', sendEscHint: 'Esc を送ります: 開いているダイアログを閉じる/拒否します。',
+    stateChanged: '送信していません — このカードを描いた後にセッションの状態が変わりました。もう一度確認してください',
+    sharedPane: 'ペイン共有', sharedPaneHint: 'このプロセス（セッション内から起動した claude -p 等）は対話セッションの tmux ペインを共有しています — 指示はそのセッションの方へ。',
     approveHint: 'Enter を送ります: 開いているダイアログのデフォルト選択肢を選びます。',
     denyHint: 'Esc を送ります: 開いているダイアログを拒否します。',
   },
@@ -533,7 +541,7 @@ function renderLimits() {
     if (!w) return '<span class="muted">—</span>';
     const cls = w.pct >= 80 ? ' hot' : w.pct >= 50 ? ' warn' : '';
     const reset = w.resetsAt ? ` · ${t().limitsReset(fmtDate(w.resetsAt).slice(w.resetsAt - now < 86400000 ? 11 : 5))}` : '';
-    return `<span class="bar${cls}" title="${esc(reset.slice(3))}"><i style="width:${Math.max(0, Math.min(100, w.pct))}%"></i></span> <b>${w.pct}%</b><span class="muted">${esc(reset)}</span>`;
+    return `<span class="bar${cls}" title="${esc(reset.slice(3))}"><i style="width:${Math.max(0, Math.min(100, Number(w.pct) || 0))}%"></i></span> <b>${esc(w.pct)}%</b><span class="muted">${esc(reset)}</span>`;
   };
   el.innerHTML = entries.map((a) => {
     const stale = now - (a.at ?? 0) > 30 * 60_000;
@@ -781,6 +789,11 @@ function cardHtml(s, draggable = false) {
     const isArmed = armed.has(key);
     return `<button class="${isArmed ? 'confirm' : cls}" data-act="${act}" data-pid="${s.pid}" title="${esc(hint)}">${isArmed ? t().confirm : label}</button>`;
   };
+  // "approve"/"deny" only mean something for a permission prompt (Enter =
+  // the default "Yes", Esc = no). Other dialogs (questions, plan approval)
+  // have their own defaults, so the buttons say what they literally send.
+  const permission = st === 'waiting' && !s.stateDerived && s.waitingFor === 'permission prompt';
+  const otherDialog = st === 'waiting' && !s.stateDerived && !permission;
   return `
   <article class="card st-${st}${s.key === selectedKey ? ' selected' : ''}${draggable ? ' draggable' : ''}" data-key="${esc(s.key)}" data-lanekey="${esc(laneKey(s))}"${draggable ? ' draggable="true"' : ''}>
     <div class="row between">
@@ -792,6 +805,7 @@ function cardHtml(s, draggable = false) {
         ${s.startedAt ? `<span class="since" title="${esc(t().dStarted)}">${fmtDate(s.startedAt)}</span>` : ''}
         <span class="chip acct ${s.account}" title="${esc(acctTitle(s))}">${s.account === 'desktop' ? t().desktop : t().cli}${acctSuffix(s)}</span>
         ${s.kind === 'bg' ? `<span class="chip kind">${t().bg}</span>` : ''}
+        ${s.entrypoint !== 'cli' && s.entrypoint !== 'claude-desktop' ? `<span class="chip kind" title="${esc(s.entrypoint)}">${esc(s.entrypoint.replace(/-cli$/, ''))}</span>` : ''}
       </span>
     </div>
     <div class="proj" title="${esc(s.cwd ?? '')}"><b>${esc(s.project ?? '?')}</b>${s.worktreeOf ? ` <span class="muted">(${t().worktree} of ${esc(baseName(s.worktreeOf))})</span>` : ''}${s.gitBranch ? ` <span class="muted">· ${esc(s.gitBranch)}</span>` : ''}${s.model ? ` <span class="muted">· ${esc(shortModel(s.model))}</span>` : ''}</div>
@@ -809,11 +823,12 @@ function cardHtml(s, draggable = false) {
     </div>
     ${files.length ? `<div class="files" title="${esc(w.files.join('\n'))}">${t().files}: ${files.map((f) => `<span>${esc(f)}</span>`).join(' ')}${w.files.length > 4 ? ` +${w.files.length - 4}` : ''}</div>` : ''}
     ${ov ? `<div class="overlap">⚠ ${t().sharesRepo(ov.pids.length - 1)}${ov.files.filter((f) => f.pids.includes(s.pid)).length ? ` · ${t().sameFiles} <span class="f">${ov.files.filter((f) => f.pids.includes(s.pid)).map((f) => esc(baseName(f.file))).join(', ')}</span>` : ''}</div>` : ''}
-    ${flags.length ? `<div class="row">${flags.map((f) => `<span class="chip flag ${f.severity}" title="${esc(f.detail ?? '')}">${esc(f.title ?? f.type)}</span>`).join('')}</div>` : ''}
+    ${flags.length ? `<div class="row">${flags.map((f) => `<span class="chip flag ${esc(f.severity)}" title="${esc(f.detail ?? '')}">${esc(f.title ?? f.type)}</span>`).join('')}</div>` : ''}
     <div class="actions">
       ${s.transcript ? `<a href="/?live=1&uilang=${LANG}#${encodeURIComponent(s.transcript.id)}" target="_blank" data-stop>${t().open} ↗</a>` : ''}
-      ${canSteer ? `<button data-act="steer" data-pid="${s.pid}">${t().steer}</button>` : `<span class="ro">${t().readonly}</span>`}
-      ${canSteer && st === 'waiting' && !s.stateDerived ? btn('approve', 'ok', t().approve, t().approveHint) + btn('deny', 'danger', t().deny, t().denyHint) : ''}
+      ${canSteer ? `<button data-act="steer" data-pid="${s.pid}">${t().steer}</button>` : `<span class="ro" title="${s.sharedPane ? esc(t().sharedPaneHint) : ''}">${s.sharedPane ? t().sharedPane : t().readonly}</span>`}
+      ${canSteer && permission ? btn('approve', 'ok', t().approve, t().approveHint) + btn('deny', 'danger', t().deny, t().denyHint) : ''}
+      ${canSteer && otherDialog ? btn('approve', '', t().sendEnter, t().sendEnterHint) + btn('deny', 'danger', t().sendEsc, t().sendEscHint) : ''}
       ${canSteer && st === 'busy' ? btn('interrupt', 'danger', t().stop, t().stopHint) : ''}
     </div>
   </article>`;
@@ -901,7 +916,10 @@ function renderLaunch() {
 }
 $('drawerClose').addEventListener('click', closeDrawer);
 document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && document.activeElement !== $('composeText')) closeDrawer();
+  if (ev.key !== 'Escape') return;
+  const a = document.activeElement;
+  if (a === $('composeText') || $('launch').contains(a)) { a.blur(); return; } // Esc leaves the field, a second Esc closes
+  closeDrawer();
 });
 
 // Approve / deny / stop are two-click: the first click arms the button (label
@@ -911,7 +929,10 @@ function armOrFire(pid, act) {
   if (armed.has(key)) {
     armed.delete(key);
     clearTimeout(confirmTimers.get(key));
-    sendAction(pid, { action: act });
+    const s = board?.sessions.find((x) => x.pid === pid);
+    // Tell the server what this card showed; it refuses if the session moved on.
+    const expect = s ? { status: s.registryStatus, waitingFor: s.waitingFor, stateSince: s.stateSince } : undefined;
+    sendAction(pid, { action: act, expect });
   } else {
     armed.add(key);
     confirmTimers.set(key, setTimeout(() => { armed.delete(key); render(); }, 4000));
@@ -927,6 +948,7 @@ async function sendAction(pid, payload) {
       body: JSON.stringify({ pid, ...payload }),
     });
     const j = await res.json();
+    if (res.status === 409) { toast(t().stateChanged, true); poll(); return false; }
     if (!res.ok) throw new Error(j.error || res.statusText);
     toast(payload.action ? t().sentKey(payload.action) : t().sent);
     return true;

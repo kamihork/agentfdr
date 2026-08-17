@@ -115,6 +115,13 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
   });
 
   async function route(req, res) {
+    // Everything here is for the browser on this machine. A DNS-rebound page
+    // (evil.example -> 127.0.0.1) arrives with Host: evil.example — refuse it
+    // before it can read transcripts, prompts or the board.
+    if (!isLoopbackHost(req.headers.host)) {
+      sendJson(res, 403, { error: 'refused: agentfdr answers loopback hosts only' });
+      return;
+    }
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -147,10 +154,10 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
       }
       try {
         const body = await readJsonBody(req);
-        const result = await sendToSession(body.pid, { text: body.text, action: body.action });
+        const result = await sendToSession(body.pid, { text: body.text, action: body.action, expect: body.expect });
         sendJson(res, 200, result);
       } catch (err) {
-        sendJson(res, 400, { error: String(err?.message ?? err) });
+        sendJson(res, err?.code === 'STATE_CHANGED' ? 409 : 400, { error: String(err?.message ?? err) });
       }
       return;
     }
@@ -279,12 +286,16 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
  * authoritative when present; otherwise the Origin header must match the Host
  * we are bound to; a request with neither is not from a modern browser page.
  */
+export function isLoopbackHost(host) {
+  return typeof host === 'string' && /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host);
+}
+
 export function isSameOrigin(req) {
   // Host must be loopback FIRST: under DNS rebinding a page from evil.example
   // resolves to 127.0.0.1 and the browser sends Sec-Fetch-Site: same-origin
   // in good faith — the Host header still says evil.example, which we refuse.
   const host = req.headers.host;
-  if (!host || !/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host)) return false;
+  if (!isLoopbackHost(host)) return false;
   const site = req.headers['sec-fetch-site'];
   if (site) return site === 'same-origin';
   const origin = req.headers.origin;
@@ -302,10 +313,15 @@ function readJsonBody(req, limit = 64 * 1024) {
       reject(new Error('expected application/json'));
       return;
     }
+    // setEncoding: chunks may split a multi-byte character; the stream's
+    // decoder stitches them back together, `'' + Buffer` would not.
+    req.setEncoding('utf8');
     let data = '';
+    let bytes = 0;
     req.on('data', (chunk) => {
       data += chunk;
-      if (data.length > limit) {
+      bytes += Buffer.byteLength(chunk);
+      if (bytes > limit) {
         reject(new Error('body too large'));
         req.destroy();
       }

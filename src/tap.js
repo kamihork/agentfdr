@@ -110,13 +110,12 @@ export async function runTap(argv = process.argv.slice(3), { stdin = process.std
   } catch {
     payload = null;
   }
-  const reading = extractRateLimits(payload);
-  if (reading) {
-    try {
-      recordRateLimits(reading, { payload });
-    } catch {
-      // never break the status line over our bookkeeping
-    }
+  let reading = null;
+  try {
+    reading = extractRateLimits(payload);
+    if (reading) recordRateLimits(reading, { payload });
+  } catch {
+    // never break the status line over our bookkeeping
   }
   if (argv.includes('--line')) stdout.write(formatLine(payload, reading) + '\n');
   else stdout.write(raw);
