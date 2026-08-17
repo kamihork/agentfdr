@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   readRegistry, readTail, summarizeTail, classify, collectBoard, findOverlaps,
-  buildSendCommands, sendToSession, resolveRepo, readHistoryIndex,
+  buildSendCommands, sendToSession, resolveRepo, readHistoryIndex, readDesktopStore, readCliAccount,
 } from '../src/board.js';
 import { isSameOrigin } from '../src/server.js';
 
@@ -48,7 +48,18 @@ function fakeHome() {
   };
   const registry = (pid, entry) => writeFileSync(join(home, 'sessions', `${pid}.json`), JSON.stringify({ pid, ...entry }));
   const history = (entries) => writeFileSync(join(home, 'history.jsonl'), entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
-  return { home, transcript, registry, history };
+  // Claude Desktop's store: <root>/<account>/<org>/local_<id>.json, every value a string.
+  const desktop = (account, org, id, entry) => {
+    const dir = join(home, 'desktop', account, org);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `local_${id}.json`), JSON.stringify(Object.fromEntries(Object.entries({ sessionId: `local_${id}`, ...entry }).map(([k, v]) => [k, String(v)]))));
+  };
+  const claudeJson = (oauthAccount) => {
+    const p = join(home, 'claude.json');
+    writeFileSync(p, JSON.stringify({ oauthAccount }));
+    return p;
+  };
+  return { home, transcript, registry, history, desktop, claudeJson };
 }
 
 // --- registry -----------------------------------------------------------------
@@ -125,7 +136,7 @@ test('classify derives state from the transcript tail when the registry is silen
 // --- the board -----------------------------------------------------------------------
 
 test('collectBoard joins registry, transcript tail, history and overlaps', () => {
-  const { home, transcript, registry, history } = fakeHome();
+  const { home, transcript, registry, history, desktop, claudeJson } = fakeHome();
   process.env.AGENTFDR_CLAUDE_DIR = join(home, 'projects');
   const now = T0 + 60_000;
 
@@ -157,10 +168,27 @@ test('collectBoard joins registry, transcript tail, history and overlaps', () =>
   // Ended session (no registry at all) with a fresh transcript -> "recent".
   transcript('-repo-done', 'sid-ended', [userLine(0, 'write docs'), assistant(1, 'm7', [{ type: 'text', text: 'Docs written.' }], { stop: 'end_turn' })]);
 
-  const reg = readRegistry({ root: join(home, 'sessions'), isAlive: (pid) => pid !== 14 });
-  const board = collectBoard({ registry: reg, history: readHistoryIndex(join(home, 'history.jsonl')), now, tmuxAvailable: true });
+  // Desktop store: the live desktop session (title comes from here), a PARKED
+  // session of the same account (listed in the app, no process), a parked
+  // session of ANOTHER account, and an archived one (never shown).
+  const ME = 'acct-me', OTHER = 'acct-other', ORG = 'org-1';
+  desktop(ME, ORG, 'live1', { cliSessionId: 'sid-desk', cwd: '/repo/web', title: 'Ship the web app', model: 'claude-sonnet-5', lastActivityAt: now - 5000, createdAt: now - 60_000, isArchived: 'False', permissionMode: 'auto', completedTurns: 3 });
+  transcript('-repo-web', 'sid-parked', [userLine(0, 'plan the migration'), assistant(1, 'm8', [{ type: 'text', text: 'Plan drafted.' }], { stop: 'end_turn' })]);
+  desktop(ME, ORG, 'park1', { cliSessionId: 'sid-parked', cwd: '/repo/web', title: 'Migration plan', model: 'claude-opus-5', lastActivityAt: now - 3 * 3600_000, createdAt: now - 4 * 3600_000, isArchived: 'False', permissionMode: 'default', completedTurns: 12 });
+  desktop(OTHER, 'org-2', 'park2', { cliSessionId: 'sid-other', cwd: '/repo/other', title: 'Other account work', model: 'claude-opus-5', lastActivityAt: now - 600_000, createdAt: now - 900_000, isArchived: 'False' });
+  desktop(ME, ORG, 'arch1', { cliSessionId: 'sid-archived', cwd: '/repo/web', title: 'Old stuff', lastActivityAt: now - 9e6, isArchived: 'True' });
+  const claudeJsonFile = claudeJson({ emailAddress: 'me@example.com', accountUuid: ME, organizationUuid: ORG });
 
-  assert.deepEqual(board.sessions.map((s) => s.pid).sort(), [11, 12, 13]);
+  const reg = readRegistry({ root: join(home, 'sessions'), isAlive: (pid) => pid !== 14 });
+  const board = collectBoard({
+    registry: reg, history: readHistoryIndex(join(home, 'history.jsonl')), now, tmuxAvailable: true,
+    desktop: readDesktopStore(join(home, 'desktop')), cliAccount: readCliAccount(claudeJsonFile),
+  });
+
+  assert.deepEqual(board.sessions.filter((s) => s.pid != null).map((s) => s.pid).sort(), [11, 12, 13]);
+  assert.deepEqual(board.sessions.filter((s) => s.parked).map((s) => s.sessionId).sort(), ['sid-other', 'sid-parked']);
+  assert.deepEqual(board.accounts.cli, { email: 'me@example.com', accountUuid: ME, orgUuid: ORG });
+  assert.deepEqual(board.accounts.desktop.map((a) => [a.accountUuid, a.email, a.sessions]).sort(), [[ME, 'me@example.com', 2], [OTHER, null, 1]]);
 
   const a = board.sessions.find((s) => s.pid === 11);
   assert.equal(a.state, 'busy');
@@ -190,6 +218,28 @@ test('collectBoard joins registry, transcript tail, history and overlaps', () =>
   assert.equal(d.controllable, false);
   assert.equal(d.state, 'idle');
   assert.equal(d.stateDerived, true);
+  assert.equal(d.title, 'Ship the web app', 'desktop store title wins for desktop sessions');
+  assert.equal(d.accountEmail, 'me@example.com');
+  assert.equal(d.key, '13');
+  assert.equal(a.accountEmail, 'me@example.com', 'CLI cards carry the CLI login');
+
+  const parked = board.sessions.find((s) => s.sessionId === 'sid-parked');
+  assert.equal(parked.state, 'idle');
+  assert.equal(parked.parked, true);
+  assert.equal(parked.pid, null);
+  assert.equal(parked.key, 'd:local_park1');
+  assert.equal(parked.controllable, false);
+  assert.equal(parked.title, 'Migration plan');
+  assert.equal(parked.lastText, 'Plan drafted.', 'its transcript is still read for the card body');
+  assert.equal(parked.stateSince, now - 3 * 3600_000);
+  const other = board.sessions.find((s) => s.sessionId === 'sid-other');
+  assert.equal(other.accountEmail, null, 'a desktop session from another account is not labelled with the CLI login');
+  assert.equal(other.accountUuid, OTHER);
+  assert.ok(!board.sessions.some((s) => s.sessionId === 'sid-archived'));
+  // Parked sessions do not count as live for overlap purposes, and their
+  // transcripts are cards now, not "recently ended".
+  assert.ok(!board.overlaps.some((o) => o.repo === '/repo/web'));
+  assert.ok(!board.recent.some((r) => r.id === 'sid-parked'));
 
   assert.equal(board.overlaps.length, 1);
   assert.deepEqual(board.overlaps[0].pids.sort(), [11, 12]);

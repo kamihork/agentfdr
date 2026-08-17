@@ -12,6 +12,11 @@
 //                                   Live transcripts reach 100 MB; a board that
 //                                   re-parses them every few seconds is not a board.
 //   ~/.claude/history.jsonl          full text + timestamp of every typed prompt.
+//   Claude Desktop's session store    ~/Library/Application Support/Claude/
+//                                   claude-code-sessions/<account>/<org>/local_*.json:
+//                                   the sessions the desktop app lists — title,
+//                                   cwd, account — including ones whose process
+//                                   the app has parked (no pid, still "open").
 //
 // The registry entry is optional per field and absent for old versions; every
 // read here is defensive, and the transcript tail is the fallback for state.
@@ -23,6 +28,7 @@
 
 import { readdirSync, readFileSync, statSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
 import { join, dirname, basename, resolve as resolvePath } from 'node:path';
+import { homedir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { projectsRoot, listProjects } from './discover.js';
 import { parseSessionText } from './parser.js';
@@ -211,6 +217,120 @@ export function readHistoryIndex(file = historyFile()) {
   return bySession;
 }
 
+// --- Claude Desktop session store --------------------------------------------------
+
+/** Where the Claude desktop app keeps its Claude Code session index. */
+export function desktopStoreRoot() {
+  if (process.env.AGENTFDR_DESKTOP_DIR) return process.env.AGENTFDR_DESKTOP_DIR;
+  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', 'Claude', 'claude-code-sessions');
+  if (process.platform === 'win32') return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Claude', 'claude-code-sessions');
+  return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'Claude', 'claude-code-sessions');
+}
+
+export function claudeJsonPath() {
+  return process.env.AGENTFDR_CLAUDE_JSON ?? join(homedir(), '.claude.json');
+}
+
+const desktopCache = new Map(); // file -> { mtimeMs, size, entry }
+
+/**
+ * Every session the desktop app knows about, live or parked:
+ * [{ desktopId, cliSessionId, cwd, title, model, lastActivityAt, createdAt,
+ *    archived, accountUuid, orgUuid, permissionMode, completedTurns }].
+ * The store's values are all strings (booleans and numbers included) — parse
+ * defensively. Missing store (no desktop app) -> [].
+ */
+export function readDesktopStore(root = desktopStoreRoot()) {
+  if (!existsSync(root)) return [];
+  const out = [];
+  let accounts;
+  try {
+    accounts = readdirSync(root, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const acct of accounts) {
+    if (!acct.isDirectory()) continue;
+    let orgs;
+    try {
+      orgs = readdirSync(join(root, acct.name), { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const org of orgs) {
+      if (!org.isDirectory()) continue;
+      const dir = join(root, acct.name, org.name);
+      let files;
+      try {
+        files = readdirSync(dir);
+      } catch {
+        continue;
+      }
+      for (const name of files) {
+        if (!name.startsWith('local_') || !name.endsWith('.json')) continue;
+        const file = join(dir, name);
+        try {
+          const st = statSync(file);
+          const hit = desktopCache.get(file);
+          if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+            out.push(hit.entry);
+            continue;
+          }
+          const d = JSON.parse(readFileSync(file, 'utf8'));
+          const num = (v) => (v == null || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+          const entry = {
+            desktopId: typeof d.sessionId === 'string' ? d.sessionId : name.slice(0, -5),
+            cliSessionId: typeof d.cliSessionId === 'string' ? d.cliSessionId : null,
+            cwd: typeof d.cwd === 'string' ? d.cwd : null,
+            title: typeof d.title === 'string' && d.title ? d.title : null,
+            model: typeof d.model === 'string' ? d.model : null,
+            lastActivityAt: num(d.lastActivityAt),
+            createdAt: num(d.createdAt),
+            archived: d.isArchived === true || d.isArchived === 'True' || d.isArchived === 'true',
+            accountUuid: acct.name,
+            orgUuid: org.name,
+            permissionMode: typeof d.permissionMode === 'string' ? d.permissionMode : null,
+            completedTurns: num(d.completedTurns),
+          };
+          desktopCache.set(file, { mtimeMs: st.mtimeMs, size: st.size, entry });
+          out.push(entry);
+        } catch {
+          // malformed or vanished; skip
+        }
+      }
+    }
+  }
+  return out;
+}
+
+let cliAccountCache = { mtimeMs: -1, value: null };
+
+/** The account the CLI is logged in as (from ~/.claude.json), or null. */
+export function readCliAccount(file = claudeJsonPath()) {
+  let st;
+  try {
+    st = statSync(file);
+  } catch {
+    return null;
+  }
+  if (cliAccountCache.mtimeMs === st.mtimeMs) return cliAccountCache.value;
+  let value = null;
+  try {
+    const oa = JSON.parse(readFileSync(file, 'utf8'))?.oauthAccount;
+    if (oa && typeof oa === 'object') {
+      value = {
+        email: typeof oa.emailAddress === 'string' ? oa.emailAddress : null,
+        accountUuid: typeof oa.accountUuid === 'string' ? oa.accountUuid : null,
+        orgUuid: typeof oa.organizationUuid === 'string' ? oa.organizationUuid : null,
+      };
+    }
+  } catch {
+    value = null;
+  }
+  cliAccountCache = { mtimeMs: st.mtimeMs, value };
+  return value;
+}
+
 // --- git root ----------------------------------------------------------------------
 
 const rootCache = new Map(); // cwd -> { repoRoot, worktreeOf }
@@ -319,6 +439,8 @@ export function collectBoard({
   registry = readRegistry(),
   projects = listProjects(),
   history = readHistoryIndex(),
+  desktop = readDesktopStore(),
+  cliAccount = readCliAccount(),
   now = Date.now(),
   config = {},
   tmuxAvailable = null,
@@ -326,9 +448,27 @@ export function collectBoard({
 } = {}) {
   const sessions = [];
   const seenTranscripts = new Set();
+  const desktopByCli = new Map(desktop.filter((d) => d.cliSessionId).map((d) => [d.cliSessionId, d]));
+  const accountLabel = (uuid) => (cliAccount?.accountUuid && uuid === cliAccount.accountUuid ? cliAccount.email : null);
 
-  for (const entry of registry) {
-    if (!entry.alive) continue;
+  // One card per registered live process...
+  const live = registry.filter((e) => e.alive).map((e) => ({ entry: e, desk: e.sessionId ? desktopByCli.get(e.sessionId) ?? null : null }));
+  // ...plus the sessions the desktop app still lists but has parked (no
+  // process right now). They are what you see in the app's sidebar; without
+  // them the board and the app disagree about what is "open".
+  const liveIds = new Set(live.map((l) => l.entry.sessionId).filter(Boolean));
+  const parked = desktop
+    .filter((d) => !d.archived && d.cliSessionId && !liveIds.has(d.cliSessionId))
+    .map((d) => ({
+      desk: d,
+      entry: {
+        pid: null, sessionId: d.cliSessionId, cwd: d.cwd, name: d.title, kind: 'interactive',
+        entrypoint: 'claude-desktop', version: null, status: 'parked', waitingFor: null, tmux: null,
+        startedAt: d.createdAt, updatedAt: d.lastActivityAt, statusUpdatedAt: d.lastActivityAt, alive: false,
+      },
+    }));
+
+  for (const { entry, desk } of [...live, ...parked]) {
     const t = findTranscript(entry.sessionId, projects);
     let tail = null;
     if (t) {
@@ -339,7 +479,10 @@ export function collectBoard({
         tail = null;
       }
     }
-    const { state, waitingFor, derived } = classify(entry, tail, { now });
+    const parkedSession = entry.status === 'parked';
+    const { state, waitingFor, derived } = parkedSession
+      ? { state: 'idle', waitingFor: null, derived: false }
+      : classify(entry, tail, { now });
     const model = tail?.model ?? null;
     const lastTurn = model?.turns.at(-1) ?? null;
     // The task is the last thing the human TYPED, not the last slash command
@@ -361,7 +504,10 @@ export function collectBoard({
     const repo = resolveRepo(entry.cwd);
     const stateSince = entry.status ? entry.statusUpdatedAt ?? entry.updatedAt : tail?.mtimeMs ?? null;
 
+    const isDesktop = entry.entrypoint === 'claude-desktop';
+    const accountUuid = isDesktop ? desk?.accountUuid ?? null : cliAccount?.accountUuid ?? null;
     sessions.push({
+      key: entry.pid != null ? String(entry.pid) : `d:${desk?.desktopId ?? entry.sessionId}`,
       pid: entry.pid,
       sessionId: entry.sessionId,
       name: entry.name,
@@ -371,20 +517,24 @@ export function collectBoard({
       worktreeOf: repo.worktreeOf,
       gitBranch: model?.session.gitBranch ?? null,
       entrypoint: entry.entrypoint,
-      account: entry.entrypoint === 'claude-desktop' ? 'desktop' : 'cli',
+      account: isDesktop ? 'desktop' : 'cli',
+      accountUuid,
+      accountEmail: isDesktop ? accountLabel(accountUuid) : cliAccount?.email ?? null,
       kind: entry.kind,
       version: entry.version,
       tmux: entry.tmux,
       controllable: Boolean(entry.tmux) && tmuxAvailable !== false,
       state,
+      parked: parkedSession,
       waitingFor,
       stateDerived: derived,
       stateSince,
       registryStatus: entry.status,
       startedAt: entry.startedAt,
-      lastActivityAt: tail?.mtimeMs ?? null,
-      title: model?.session.title ?? null,
-      model: lastTurn?.model ?? model?.session.model ?? null,
+      lastActivityAt: tail?.mtimeMs ?? desk?.lastActivityAt ?? null,
+      title: desk?.title ?? model?.session.title ?? null,
+      desktop: desk ? { id: desk.desktopId, permissionMode: desk.permissionMode, completedTurns: desk.completedTurns } : null,
+      model: lastTurn?.model ?? model?.session.model ?? desk?.model ?? null,
       prompt: promptText ? { text: promptText.slice(0, 1200), at: promptAt, inWindow: Boolean(lastPrompt) } : null,
       lastText: lastText ?? null,
       currentTool: currentTool ? { name: currentTool.name, summary: currentTool.summary, since: currentTool.timestamp ? Date.parse(currentTool.timestamp) : null } : null,
@@ -408,13 +558,26 @@ export function collectBoard({
     });
   }
 
-  sessions.sort((a, b) => stateRank(a.state) - stateRank(b.state) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
+  sessions.sort((a, b) => stateRank(a.state) - stateRank(b.state) || Number(a.parked) - Number(b.parked) || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
+
+  // Which accounts are on the board: the CLI's login and every account the
+  // desktop store has sessions for (the desktop app can be signed in to a
+  // different account than the CLI).
+  const desktopAccounts = new Map();
+  for (const d of desktop) {
+    if (d.archived) continue;
+    const a = desktopAccounts.get(d.accountUuid) ?? { accountUuid: d.accountUuid, email: accountLabel(d.accountUuid), sessions: 0 };
+    a.sessions++;
+    desktopAccounts.set(d.accountUuid, a);
+  }
 
   return {
     generatedAt: now,
     tmux: tmuxAvailable,
+    accounts: { cli: cliAccount, desktop: [...desktopAccounts.values()] },
     sessions,
-    overlaps: findOverlaps(sessions),
+    // Parked sessions have no process: they cannot be stepping on anything.
+    overlaps: findOverlaps(sessions.filter((s) => !s.parked)),
     recent: recentEnded(projects, seenTranscripts, now),
   };
 }

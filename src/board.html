@@ -184,6 +184,7 @@
   #toast.on { opacity: 1; }
   #toast.err { background: var(--st-waiting); color: #fff; }
 
+  @media (max-width: 1500px) { #accounts { display: none; } }
   @media (max-width: 900px) {
     body { overflow: auto; }
     #main { flex-direction: column; }
@@ -198,6 +199,7 @@
   <h1>agentfdr <span>board</span></h1>
   <span class="live" id="live"><span class="dot"></span><span id="liveText">…</span></span>
   <span class="counts" id="counts"></span>
+  <span class="muted" id="accounts" style="font-size:11.5px;max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=""></span>
   <span class="spacer"></span>
   <select id="acctFilter" title="Account">
     <option value="">all accounts</option>
@@ -256,6 +258,8 @@ const I18N = {
     inWindowNote: 'stats cover the last part of the transcript only (≥)',
     pending: 'running', ago: (s) => `${s} ago`, forS: (s) => `for ${s}`,
     hintDerived: 'inferred from the transcript (this session reports no status)',
+    parked: 'parked', parkedHint: 'Listed in the Claude desktop app, but no process is running for it right now (the app restarts it on your next message).',
+    acctCli: 'CLI', acctDesktop: 'Desktop', otherAccount: 'other account', unknownAccount: 'account unknown',
     tmuxOff: 'tmux is not running — steering is disabled',
     stopHint: 'Sends Esc: interrupts the running turn (or rejects an open dialog).',
     approveHint: 'Sends Enter: takes the highlighted (default) choice of the open dialog.',
@@ -284,6 +288,8 @@ const I18N = {
     inWindowNote: '統計はトランスクリプト末尾の範囲のみ (≥)',
     pending: '実行中', ago: (s) => `${s}前`, forS: (s) => `${s}経過`,
     hintDerived: 'トランスクリプトから推定（このセッションは状態を報告しません）',
+    parked: '休止', parkedHint: 'Claude デスクトップアプリの一覧にはあるが、今はプロセスが動いていないセッション（次のメッセージでアプリが再起動します）。',
+    acctCli: 'CLI', acctDesktop: 'Desktop', otherAccount: '別アカウント', unknownAccount: 'アカウント不明',
     tmuxOff: 'tmux が起動していないため指示は送れません',
     stopHint: 'Esc を送ります: 実行中のターンを中断（ダイアログが開いていれば拒否）。',
     approveHint: 'Enter を送ります: 開いているダイアログのデフォルト選択肢を選びます。',
@@ -330,7 +336,7 @@ function applyLang() {
 let board = null;
 let lastFetchAt = 0;
 let fetchFailed = false;
-let selectedPid = null;
+let selectedKey = null;
 const confirmTimers = new Map(); // `${pid}:${action}` -> timeout id
 const armed = new Set();
 
@@ -388,6 +394,27 @@ function fmtUsd(v) { return v == null ? '—' : v >= 10 ? `$${v.toFixed(0)}` : `
 function fmtTime(ms) { return ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'; }
 function shortModel(m) { return (m ?? '').replace(/^claude-/, '').replace(/-\d{8}$/, ''); }
 function baseName(p) { return String(p).split('/').filter(Boolean).pop() ?? p; }
+function acctTitle(s) {
+  if (s.accountEmail) return s.accountEmail;
+  if (s.account === 'desktop' && s.accountUuid) return `${t().otherAccount} (${s.accountUuid.slice(0, 8)}…)`;
+  return t().unknownAccount;
+}
+// Desktop cards from an account other than the CLI's get a visible marker; the
+// user's whole reason for the account badge is telling the two apart.
+function acctSuffix(s) {
+  if (s.account !== 'desktop' || s.accountEmail || !board?.accounts?.cli?.accountUuid) return '';
+  return ` · ${t().otherAccount}`;
+}
+function renderAccounts() {
+  const a = board?.accounts;
+  const el = $('accounts');
+  if (!a) { el.textContent = ''; return; }
+  const parts = [];
+  if (a.cli?.email) parts.push(`${t().acctCli}: ${a.cli.email}`);
+  for (const d of a.desktop ?? []) parts.push(`${t().acctDesktop}: ${d.email ?? `${t().otherAccount} ${d.accountUuid.slice(0, 8)}…`} (${d.sessions})`);
+  el.textContent = parts.join(' · ');
+  el.title = parts.join('\n');
+}
 function stateLabel(st) { return { waiting: t().waiting, busy: t().busy, idle: t().idleS, unknown: t().unknownS, ended: t().endedS }[st] ?? st; }
 // waitingFor comes from Claude Code's registry in English; 'possibly a dialog' is agentfdr's own inference.
 const WAITING_JA = { 'permission prompt': '許可待ち', 'input needed': '入力待ち', 'dialog open': 'ダイアログ表示中', 'sandbox request': 'サンドボックス要求', 'worker request': 'ワーカー要求', 'possibly a dialog': 'ダイアログの可能性' };
@@ -408,6 +435,7 @@ function render() {
   if (!board) { $('board').innerHTML = `<div class="col"><div class="empty">…</div></div>`; return; }
   const sessions = visibleSessions();
   renderCounts(board.sessions);
+  renderAccounts();
   renderWarn();
   const groupBy = $('groupBy').value;
   const cols = [];
@@ -485,14 +513,14 @@ function cardHtml(s) {
     return `<button class="${isArmed ? 'confirm' : cls}" data-act="${act}" data-pid="${s.pid}" title="${esc(hint)}">${isArmed ? t().confirm : label}</button>`;
   };
   return `
-  <article class="card st-${st}${s.pid === selectedPid ? ' selected' : ''}" data-pid="${s.pid}">
+  <article class="card st-${st}${s.key === selectedKey ? ' selected' : ''}" data-key="${esc(s.key)}">
     <div class="row between">
       <span class="row">
-        <span class="chip state${s.stateDerived ? ' derived' : ''}" title="${s.stateDerived ? esc(t().hintDerived) : ''}">${esc(stateLabel(st))}${s.waitingFor ? ` · ${esc(waitingLabel(s.waitingFor))}` : ''}</span>
+        <span class="chip state${s.stateDerived ? ' derived' : ''}${s.parked ? ' derived' : ''}" title="${s.parked ? esc(t().parkedHint) : s.stateDerived ? esc(t().hintDerived) : ''}">${esc(stateLabel(st))}${s.waitingFor ? ` · ${esc(waitingLabel(s.waitingFor))}` : ''}${s.parked ? ` · ${t().parked}` : ''}</span>
         ${since ? `<span class="since">${esc(t().forS(since))}</span>` : ''}
       </span>
       <span class="row">
-        <span class="chip acct ${s.account}">${s.account === 'desktop' ? t().desktop : t().cli}</span>
+        <span class="chip acct ${s.account}" title="${esc(acctTitle(s))}">${s.account === 'desktop' ? t().desktop : t().cli}${acctSuffix(s)}</span>
         ${s.kind === 'bg' ? `<span class="chip kind">${t().bg}</span>` : ''}
       </span>
     </div>
@@ -545,22 +573,23 @@ $('board').addEventListener('click', (ev) => {
     ev.stopPropagation();
     const pid = Number(b.dataset.pid);
     const act = b.dataset.act;
-    if (act === 'steer') { select(pid); $('composeText').focus(); return; }
+    if (act === 'steer') { select(String(pid)); $('composeText').focus(); return; }
     armOrFire(pid, act);
     return;
   }
-  const card = ev.target.closest('.card[data-pid]');
-  if (card) select(Number(card.dataset.pid));
+  const card = ev.target.closest('.card[data-key]');
+  if (card) select(card.dataset.key);
 });
 
-function select(pid) {
-  selectedPid = pid === selectedPid ? pid : pid;
+function select(key) {
+  selectedKey = key;
   $('drawer').classList.add('open');
   render();
 }
-$('drawerClose').addEventListener('click', () => { selectedPid = null; $('drawer').classList.remove('open'); render(); });
+function closeDrawer() { selectedKey = null; $('drawer').classList.remove('open'); render(); }
+$('drawerClose').addEventListener('click', closeDrawer);
 document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && document.activeElement !== $('composeText')) { selectedPid = null; $('drawer').classList.remove('open'); render(); }
+  if (ev.key === 'Escape' && document.activeElement !== $('composeText')) closeDrawer();
 });
 
 // Approve / deny / stop are two-click: the first click arms the button (label
@@ -601,17 +630,18 @@ $('composeText').addEventListener('keydown', (ev) => {
 });
 async function composeSend() {
   const text = $('composeText').value;
-  if (!selectedPid || !text.trim()) return;
+  const s = board?.sessions.find((x) => x.key === selectedKey);
+  if (!s?.pid || !text.trim()) return;
   $('composeSend').disabled = true;
-  const ok = await sendAction(selectedPid, { text });
+  const ok = await sendAction(s.pid, { text });
   $('composeSend').disabled = false;
   if (ok) $('composeText').value = '';
 }
 
 function renderDrawer() {
-  const s = board?.sessions.find((x) => x.pid === selectedPid);
+  const s = board?.sessions.find((x) => x.key === selectedKey);
   if (!s) {
-    if (selectedPid != null) { selectedPid = null; $('drawer').classList.remove('open'); }
+    if (selectedKey != null) { selectedKey = null; $('drawer').classList.remove('open'); }
     return;
   }
   const now = board.generatedAt;
@@ -623,7 +653,7 @@ function renderDrawer() {
     [t().dModel, shortModel(s.model) || '—'],
     [t().dActivity, s.lastActivityAt ? `${fmtTime(s.lastActivityAt)} (${fmtDur(now - s.lastActivityAt)})` : '—'],
     [t().dStarted, s.startedAt ? `${fmtTime(s.startedAt)} (${fmtDur(now - s.startedAt)})` : '—'],
-    [t().dPid, `${s.pid} · ${s.account === 'desktop' ? t().desktop : t().cli}${s.kind === 'bg' ? ' · bg' : ''} · v${s.version ?? '?'}`],
+    [t().dPid, `${s.pid ?? '—'} · ${s.account === 'desktop' ? t().desktop : t().cli} · ${acctTitle(s)}${s.kind === 'bg' ? ' · bg' : ''}${s.version ? ` · v${s.version}` : ''}${s.parked ? ` · ${t().parked}` : ''}`],
     [t().dTmux, s.tmux ?? '—'],
     [t().dSession, s.sessionId ?? '—'],
   ];
