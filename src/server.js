@@ -17,7 +17,7 @@ import { parseTokenCount } from './assert.js';
 import { diffSessions } from './diff.js';
 import { buildDocs, searchSessions } from './search.js';
 import { buildSubagentTree, subagentTotals, subagentStamp } from './subagents.js';
-import { collectBoard, sendToSession, tmuxAvailable } from './board.js';
+import { collectBoard, sendToSession, tmuxAvailable, launchSession } from './board.js';
 
 const UI_PATH = join(dirname(fileURLToPath(import.meta.url)), 'ui.html');
 const BOARD_PATH = join(dirname(fileURLToPath(import.meta.url)), 'board.html');
@@ -148,6 +148,26 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
       try {
         const body = await readJsonBody(req);
         const result = await sendToSession(body.pid, { text: body.text, action: body.action });
+        sendJson(res, 200, result);
+      } catch (err) {
+        sendJson(res, 400, { error: String(err?.message ?? err) });
+      }
+      return;
+    }
+    if (url.pathname === '/api/board/launch') {
+      // Starts a NEW Claude Code session (detached tmux). Same guards as send:
+      // POST, JSON, same-origin, loopback host.
+      if (req.method !== 'POST') {
+        sendJson(res, 405, { error: 'POST only' });
+        return;
+      }
+      if (!isSameOrigin(req)) {
+        sendJson(res, 403, { error: 'cross-origin request refused' });
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const result = await launchSession({ dir: body.dir, prompt: body.prompt, model: body.model, resume: Boolean(body.resume) });
         sendJson(res, 200, result);
       } catch (err) {
         sendJson(res, 400, { error: String(err?.message ?? err) });

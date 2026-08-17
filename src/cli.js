@@ -22,7 +22,10 @@ Usage:
   agentfdr watch [session]      Open the timeline UI in live mode (auto-refresh)
   agentfdr board                Live board of every running Claude Code session:
                                 busy / idle / waiting on you, current task, and
-                                cross-session file overlap; steer tmux sessions
+                                cross-session file overlap; steer tmux sessions,
+                                start new ones
+  agentfdr statusline-tap       Status-line pass-through that records the plan's
+                                5h / 7d usage per account for the board (see README)
   agentfdr blame [session]      Print a markdown autopsy of a session
   agentfdr diff <a> <b>         Compare two sessions (failed attempt vs retry)
   agentfdr search <query>       Full-text search across all sessions

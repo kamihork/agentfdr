@@ -72,7 +72,8 @@ agentfdr                    # open the newest session's timeline in your browser
 agentfdr list               # all recorded sessions across all projects
 agentfdr open 35cb18        # open a session by id prefix (or path to a .jsonl)
 agentfdr watch              # same, but live: the timeline follows the running session
-agentfdr board              # live kanban of every running session; steer tmux sessions from it
+agentfdr board              # live kanban of every running session; steer tmux sessions, start new ones
+agentfdr statusline-tap     # status-line pass-through recording 5h/7d plan usage per account (board)
 agentfdr blame 35cb18       # markdown autopsy — paste it into an issue
 agentfdr diff 35cb18 9af7ec # compare two sessions: failed attempt vs retry
 agentfdr search "login bug" # full-text search across every session
@@ -111,9 +112,15 @@ Tabs switch the main view: **Timeline / Turns / Prompts / Subagents / Usage / Co
 - **Two accounts, one screen** — sessions are badged **CLI** or **Desktop** (Claude Code inside the Claude desktop app), the header names the account each app is signed in to, and the filter narrows to either. Desktop sessions come with the titles the app shows, and the sessions the app lists but has *parked* (no process until your next message) appear as idle cards marked *parked* — so the board and the app's sidebar agree on what is open. A Desktop session from an account other than the CLI's is marked *other account*.
 - **Cross-session influence** — sessions on the same repository (worktrees resolve to their parent) are grouped, and a banner names the files that more than one live session is editing.
 - **Steering** — for sessions running in tmux (any `tmux new-session … claude` launcher), the card offers *send…*, *approve*, *deny* and *stop*. Text is typed into the pane and submitted exactly as if you were at the keyboard (multi-line goes in as one paste); approve/deny press Enter/Esc on the open dialog; stop interrupts the turn. Approve/deny/stop are two-click, never modal. Desktop-app and background (`--bg`) sessions have no pane to reach and are read-only.
+- **Start a session** — *+ new session* opens a launcher: pick a directory (suggestions come from where you have run Claude Code before), an optional first prompt, model, and whether to continue that directory's last conversation. The board creates a detached tmux session named `claude-<dir>-<cksum>` — the same convention as a `tmux new-session … claude` shell wrapper keyed on the path, so `cc`-style launchers attach to it — runs `claude` there, and the new card appears as soon as it registers (a second session in the same directory gets a `-2` suffix). Sessions started this way are steerable like any tmux session.
+- **Plan limits per account** — the 5-hour and 7-day usage bars Claude Code shows in its status line, per account, at the top of the board. Nothing on disk carries those numbers, so agentfdr ships a status-line pass-through that records them: put `agentfdr statusline-tap |` in front of your status-line command in `~/.claude/settings.json` (or use `agentfdr statusline-tap --line` on its own for a compact `[model] dir · 5h 26% · 7d 9%`). Readings land in `~/.agentfdr/rate-limits.json` keyed by account, with reset times; a second account in its own `CLAUDE_CONFIG_DIR` records under its own key. Until the tap is wired in, the strip says so once and stays out of the way.
+
+  ```json
+  "statusLine": { "type": "command", "command": "agentfdr statusline-tap | ~/.claude/statusline-command.sh" }
+  ```
 - **Cheap by design** — live transcripts grow past 100 MB; the board reads only the last 2 MB of each (`AGENTFDR_BOARD_TAIL_MB` to change), so a poll costs milliseconds. Stats prefixed with `≥` mean the current task started before that window.
 
-The steering endpoint only answers same-origin `POST`s from the board page itself, and the server stays on `127.0.0.1` — a page that can type into your agents must not be reachable by any other tab. `agentfdr board --json` prints the same board once, for scripts.
+The steering and launch endpoints only answer same-origin `POST`s from the board page itself, and the server stays on `127.0.0.1` — a page that can type into your agents must not be reachable by any other tab. `agentfdr board --json` prints the same board once, for scripts.
 
 ## Anomaly flags
 

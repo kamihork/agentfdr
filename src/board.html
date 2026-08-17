@@ -176,6 +176,29 @@
   #composer .hint { font-size: 11.5px; color: var(--text-muted); flex: 1; }
   #composer .ro { font-size: 12px; color: var(--text-muted); }
 
+  #limits { display: none; gap: 8px; flex-wrap: wrap; align-items: center; padding: 6px 16px; border-bottom: 1px solid var(--grid); font-size: 12px; }
+  #limits.on { display: flex; }
+  #limits .lim { display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px; border-radius: 999px; background: var(--wash); }
+  #limits .lim b { font-weight: 650; }
+  #limits .lim .who { color: var(--text-secondary); }
+  #limits .bar { display: inline-block; width: 64px; height: 7px; border-radius: 4px; background: var(--grid); overflow: hidden; vertical-align: middle; }
+  #limits .bar i { display: block; height: 100%; background: var(--st-busy); }
+  #limits .bar.warn i { background: var(--st-idle); }
+  #limits .bar.hot i { background: var(--st-waiting); }
+  #limits .stale { color: var(--text-muted); font-style: italic; }
+  #limits .setup { color: var(--text-muted); }
+  #limits .setup code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: var(--wash); padding: 0 4px; border-radius: 3px; }
+  #launch { display: none; flex-direction: column; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--grid); }
+  #launch.on { display: flex; }
+  #launch label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-muted); }
+  #launch label.inline { flex: 1; }
+  #launch label.chk { flex-direction: row; align-items: center; gap: 6px; flex: 1.4; }
+  #launch label.chk input { width: auto; }
+  #launch input, #launch textarea { width: 100%; font-size: 13px; }
+  #launch textarea { resize: vertical; }
+  #launch .lrow { display: flex; gap: 10px; align-items: flex-end; }
+  #launch .crow { display: flex; gap: 8px; align-items: center; }
+  #launch .hint { font-size: 11.5px; color: var(--text-muted); flex: 1; }
   #toast {
     position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
     background: var(--text-primary); color: var(--page); padding: 8px 14px; border-radius: 8px;
@@ -229,9 +252,11 @@
     <option value="manual">manual lanes</option>
   </select>
   <a id="viewerLink" href="/" target="_blank" title="Timeline viewer" style="font-size:12px;text-decoration:none">timeline ↗</a>
+  <button id="newSession" class="primary" title=""></button>
   <button id="langToggle" title="Language">日本語</button>
   <button id="themeToggle" title="Theme">◐</button>
 </header>
+<div id="limits"></div>
 <div id="warn"></div>
 <div id="dndHint"></div>
 <div id="main">
@@ -239,6 +264,18 @@
   <aside id="drawer">
     <div id="drawerHead"><h3 id="drawerTitle"></h3><button id="drawerClose" title="Close (Esc)">✕</button></div>
     <div id="drawerBody"></div>
+    <form id="launch" autocomplete="off">
+      <label><span id="lDirLabel"></span><input id="lDir" list="dirList" required placeholder="/path/to/repo"><datalist id="dirList"></datalist></label>
+      <label><span id="lPromptLabel"></span><textarea id="lPrompt" rows="5"></textarea></label>
+      <div class="lrow">
+        <label class="inline"><span id="lModelLabel"></span><input id="lModel" list="modelList" placeholder="default"><datalist id="modelList"></datalist></label>
+        <label class="inline chk"><input id="lResume" type="checkbox"><span id="lResumeLabel"></span></label>
+      </div>
+      <div class="crow">
+        <button id="lGo" class="primary" type="submit"></button>
+        <span class="hint" id="lHint"></span>
+      </div>
+    </form>
     <div id="composer">
       <textarea id="composeText" placeholder=""></textarea>
       <div class="crow">
@@ -280,6 +317,15 @@ const I18N = {
     unsorted: 'Unsorted', addLane: '+ lane', laneDefault: 'Lane', deleteLane: 'delete lane', renameHint: 'click to rename',
     dndHint: 'Drag cards between lanes to triage them your way. Lanes and placement are saved in this browser; the state chip still tells you what the session is doing.',
     defaultLanes: ['Now', 'Later', 'Watching', 'Hold'],
+    newSession: '+ new session', newSessionTitle: 'Start a new Claude Code session in a tmux pane',
+    launchTitle: 'New session', lDir: 'directory', lPrompt: 'first prompt (optional — Claude Code starts with it)', lModel: 'model (optional)', lResume: 'continue the last conversation in this directory',
+    launch: 'Start', launching: 'starting…',
+    launched: (n) => `started: ${n} — the card appears in a few seconds`,
+    launchedUnregistered: (n) => `started ${n}, but it has not registered yet — a first-run dialog (workspace trust) is probably waiting in the pane: tmux attach -t ${n}`,
+    launchHint: 'Runs `claude` in a detached tmux session named like your shell wrapper does (claude-<dir>-<cksum>), so `cc` in that directory attaches to it. Only sessions started this way (or in tmux) can be steered from the board.',
+    limits5h: '5h', limits7d: '7d', limitsReset: (t) => `resets ${t}`, limitsAsOf: (t) => `as of ${t}`,
+    limitsSetup: 'Plan limits (5h / 7d) per account: pipe your status line through the tap —',
+    limitsUnknown: 'account unknown',
     tmuxOff: 'tmux is not running — steering is disabled',
     stopHint: 'Sends Esc: interrupts the running turn (or rejects an open dialog).',
     approveHint: 'Sends Enter: takes the highlighted (default) choice of the open dialog.',
@@ -313,6 +359,15 @@ const I18N = {
     unsorted: '未分類', addLane: '+ レーン', laneDefault: 'レーン', deleteLane: 'レーンを削除', renameHint: 'クリックで名前を変更',
     dndHint: 'カードをレーン間でドラッグして自分流に仕分けできます。レーンと配置はこのブラウザに保存され、状態チップはそのまま何をしているかを示します。',
     defaultLanes: ['今やる', '後で', '監視中', '保留'],
+    newSession: '+ 新規セッション', newSessionTitle: 'tmux ペインで新しい Claude Code セッションを起動',
+    launchTitle: '新規セッション', lDir: 'ディレクトリ', lPrompt: '最初の依頼（任意 — Claude Code がこの依頼から始めます）', lModel: 'モデル（任意）', lResume: 'このディレクトリの前回の会話を続ける',
+    launch: '起動', launching: '起動中…',
+    launched: (n) => `起動しました: ${n} — 数秒でカードが現れます`,
+    launchedUnregistered: (n) => `${n} を起動しましたがまだ登録されていません — ペイン内で初回ダイアログ（フォルダの信頼確認）が待っている可能性があります: tmux attach -t ${n}`,
+    launchHint: 'シェルラッパーと同じ命名（claude-<dir>-<cksum>）の tmux セッションを切り離しで作って `claude` を起動します。そのディレクトリで `cc` するとそのセッションに接続されます。ボードから指示できるのは、この方法（または tmux 上）で起動したセッションだけです。',
+    limits5h: '5h', limits7d: '7d', limitsReset: (t) => `${t} にリセット`, limitsAsOf: (t) => `${t} 時点`,
+    limitsSetup: 'アカウントごとのプラン上限（5h / 7d）を出すには、statusline を tap 経由にします —',
+    limitsUnknown: 'アカウント不明',
     tmuxOff: 'tmux が起動していないため指示は送れません',
     stopHint: 'Esc を送ります: 実行中のターンを中断（ダイアログが開いていれば拒否）。',
     approveHint: 'Enter を送ります: 開いているダイアログのデフォルト選択肢を選びます。',
@@ -354,6 +409,14 @@ function applyLang() {
   $('projectFilter').placeholder = LANG === 'ja' ? 'プロジェクトで絞る…' : 'filter project…';
   $('composeText').placeholder = t().composePh;
   $('composeSend').textContent = t().send;
+  $('newSession').textContent = t().newSession;
+  $('newSession').title = t().newSessionTitle;
+  $('lDirLabel').textContent = t().lDir;
+  $('lPromptLabel').textContent = t().lPrompt;
+  $('lModelLabel').textContent = t().lModel;
+  $('lResumeLabel').textContent = t().lResume;
+  $('lGo').textContent = t().launch;
+  $('lHint').textContent = t().launchHint;
 }
 
 // --- state --------------------------------------------------------------------
@@ -454,6 +517,34 @@ function renderAccounts() {
 }
 const STATE_RANK = { waiting: 0, busy: 1, idle: 2, unknown: 3 };
 function stateRank(st) { return STATE_RANK[st] ?? 4; }
+// Plan usage per account, as Claude Code reports it to the status line and the
+// tap records it. Absent until the tap is wired in — say how, once, quietly.
+function renderLimits() {
+  const el = $('limits');
+  const rl = board?.rateLimits ?? {};
+  const entries = Object.values(rl);
+  el.classList.add('on');
+  if (!entries.length) {
+    el.innerHTML = `<span class="setup">${esc(t().limitsSetup)} <code>agentfdr statusline-tap</code> <a href="https://github.com/kamihork/agentfdr#the-board" target="_blank">README ↗</a></span>`;
+    return;
+  }
+  const now = board.generatedAt;
+  const bar = (w) => {
+    if (!w) return '<span class="muted">—</span>';
+    const cls = w.pct >= 80 ? ' hot' : w.pct >= 50 ? ' warn' : '';
+    const reset = w.resetsAt ? ` · ${t().limitsReset(fmtDate(w.resetsAt).slice(w.resetsAt - now < 86400000 ? 11 : 5))}` : '';
+    return `<span class="bar${cls}" title="${esc(reset.slice(3))}"><i style="width:${Math.max(0, Math.min(100, w.pct))}%"></i></span> <b>${w.pct}%</b><span class="muted">${esc(reset)}</span>`;
+  };
+  el.innerHTML = entries.map((a) => {
+    const stale = now - (a.at ?? 0) > 30 * 60_000;
+    return `<span class="lim" title="${esc(a.accountUuid ?? '')}">
+      <span class="who">${esc(a.email ?? t().limitsUnknown)}</span>
+      <span>${t().limits5h} ${bar(a.fiveHour)}</span>
+      <span>${t().limits7d} ${bar(a.sevenDay)}</span>
+      ${stale ? `<span class="stale">${esc(t().limitsAsOf(fmtDate(a.at)))}</span>` : ''}
+    </span>`;
+  }).join('');
+}
 function stateLabel(st) { return { waiting: t().waiting, busy: t().busy, idle: t().idleS, unknown: t().unknownS, ended: t().endedS }[st] ?? st; }
 // waitingFor comes from Claude Code's registry in English; 'possibly a dialog' is agentfdr's own inference.
 const WAITING_JA = { 'permission prompt': '許可待ち', 'input needed': '入力待ち', 'dialog open': 'ダイアログ表示中', 'sandbox request': 'サンドボックス要求', 'worker request': 'ワーカー要求', 'possibly a dialog': 'ダイアログの可能性' };
@@ -475,6 +566,7 @@ function render() {
   const sessions = visibleSessions();
   renderCounts(board.sessions);
   renderAccounts();
+  renderLimits();
   renderWarn();
   const groupBy = $('groupBy').value;
   const cols = [];
@@ -759,12 +851,54 @@ $('board').addEventListener('click', (ev) => {
   if (card) select(card.dataset.key);
 });
 
+let launchOpen = false;
 function select(key) {
   selectedKey = key;
+  launchOpen = false;
   $('drawer').classList.add('open');
   render();
 }
-function closeDrawer() { selectedKey = null; $('drawer').classList.remove('open'); render(); }
+function closeDrawer() { selectedKey = null; launchOpen = false; $('drawer').classList.remove('open'); render(); }
+$('newSession').addEventListener('click', () => {
+  selectedKey = null;
+  launchOpen = true;
+  $('drawer').classList.add('open');
+  render();
+  $('lDir').focus();
+});
+$('launch').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const body = { dir: $('lDir').value.trim(), prompt: $('lPrompt').value, model: $('lModel').value.trim(), resume: $('lResume').checked };
+  if (!body.dir) return;
+  $('lGo').disabled = true;
+  toast(t().launching);
+  try {
+    const res = await fetch('/api/board/launch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || res.statusText);
+    toast(j.registered ? t().launched(j.name) : t().launchedUnregistered(j.name), !j.registered);
+    $('lPrompt').value = '';
+    if (j.registered) { launchOpen = false; if (j.pid != null) selectedKey = String(j.pid); }
+    poll();
+  } catch (err) {
+    toast(String(err.message || err), true);
+  } finally {
+    $('lGo').disabled = false;
+  }
+});
+function renderLaunch() {
+  $('launch').classList.toggle('on', launchOpen);
+  $('composer').style.display = launchOpen ? 'none' : '';
+  $('drawerBody').style.display = launchOpen ? 'none' : '';
+  if (!launchOpen) return;
+  $('drawerTitle').textContent = t().launchTitle;
+  $('drawerBody').innerHTML = '';
+  const dirs = board?.knownDirs ?? [];
+  $('dirList').innerHTML = dirs.map((d) => `<option value="${esc(d.dir)}"></option>`).join('');
+  const models = [...new Set((board?.sessions ?? []).map((s) => s.model).filter(Boolean))];
+  $('modelList').innerHTML = models.map((m) => `<option value="${esc(m)}"></option>`).join('');
+  if (!$('lDir').value && dirs[0]) $('lDir').placeholder = dirs[0].dir;
+}
 $('drawerClose').addEventListener('click', closeDrawer);
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && document.activeElement !== $('composeText')) closeDrawer();
@@ -817,6 +951,8 @@ async function composeSend() {
 }
 
 function renderDrawer() {
+  renderLaunch();
+  if (launchOpen) return;
   const s = board?.sessions.find((x) => x.key === selectedKey);
   if (!s) {
     if (selectedKey != null) { selectedKey = null; $('drawer').classList.remove('open'); }

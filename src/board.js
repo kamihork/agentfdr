@@ -183,23 +183,41 @@ export function editedFiles(model, from = 0) {
 
 // --- history ---------------------------------------------------------------------
 
-let historyCache = { mtimeMs: -1, size: -1, bySession: new Map() };
+let historyCache = { mtimeMs: -1, size: -1, bySession: new Map(), projects: [] };
 
 /** sessionId -> { text, timestamp } of the last typed prompt, from ~/.claude/history.jsonl. */
 export function readHistoryIndex(file = historyFile()) {
+  return loadHistory(file).bySession;
+}
+
+/** Directories you have run Claude Code in, most recently used first — the launcher's suggestions. */
+export function knownProjectDirs(file = historyFile(), { limit = 40 } = {}) {
+  return loadHistory(file).projects
+    .filter((p) => {
+      try {
+        return statSync(p.dir).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .slice(0, limit);
+}
+
+function loadHistory(file) {
   let st;
   try {
     st = statSync(file);
   } catch {
-    return new Map();
+    return { bySession: new Map(), projects: [] };
   }
-  if (historyCache.mtimeMs === st.mtimeMs && historyCache.size === st.size) return historyCache.bySession;
+  if (historyCache.mtimeMs === st.mtimeMs && historyCache.size === st.size) return historyCache;
   const bySession = new Map();
+  const lastByDir = new Map();
   let text;
   try {
     text = readFileSync(file, 'utf8');
   } catch {
-    return bySession;
+    return { bySession, projects: [] };
   }
   for (const line of text.split('\n')) {
     if (!line) continue;
@@ -209,12 +227,14 @@ export function readHistoryIndex(file = historyFile()) {
     } catch {
       continue;
     }
+    if (typeof e.project === 'string' && e.project) lastByDir.set(e.project, Math.max(lastByDir.get(e.project) ?? 0, numOrNull(e.timestamp) ?? 0));
     if (typeof e?.sessionId !== 'string' || typeof e.display !== 'string') continue;
     if (!e.display.trim() || e.display.startsWith('/')) continue; // slash commands are not tasks
     bySession.set(e.sessionId, { text: e.display, timestamp: numOrNull(e.timestamp) });
   }
-  historyCache = { mtimeMs: st.mtimeMs, size: st.size, bySession };
-  return bySession;
+  const projects = [...lastByDir].map(([dir, lastAt]) => ({ dir, lastAt })).sort((a, b) => b.lastAt - a.lastAt);
+  historyCache = { mtimeMs: st.mtimeMs, size: st.size, bySession, projects };
+  return historyCache;
 }
 
 // --- Claude Desktop session store --------------------------------------------------
@@ -228,7 +248,10 @@ export function desktopStoreRoot() {
 }
 
 export function claudeJsonPath() {
-  return process.env.AGENTFDR_CLAUDE_JSON ?? join(homedir(), '.claude.json');
+  if (process.env.AGENTFDR_CLAUDE_JSON) return process.env.AGENTFDR_CLAUDE_JSON;
+  // A second account on the same machine lives in its own CLAUDE_CONFIG_DIR.
+  if (process.env.CLAUDE_CONFIG_DIR) return join(process.env.CLAUDE_CONFIG_DIR, '.claude.json');
+  return join(homedir(), '.claude.json');
 }
 
 const desktopCache = new Map(); // file -> { mtimeMs, size, entry }
@@ -441,6 +464,8 @@ export function collectBoard({
   history = readHistoryIndex(),
   desktop = readDesktopStore(),
   cliAccount = readCliAccount(),
+  rateLimits = readRateLimits(),
+  knownDirs = knownProjectDirs(),
   now = Date.now(),
   config = {},
   tmuxAvailable = null,
@@ -575,6 +600,8 @@ export function collectBoard({
     generatedAt: now,
     tmux: tmuxAvailable,
     accounts: { cli: cliAccount, desktop: [...desktopAccounts.values()] },
+    rateLimits,
+    knownDirs,
     sessions,
     // Parked sessions have no process: they cannot be stepping on anything.
     overlaps: findOverlaps(sessions.filter((s) => !s.parked)),
@@ -701,6 +728,127 @@ function recentEnded(projects, seen, now) {
     }
     return { ...r, ...info, project: info.cwd ? basename(info.cwd) : null };
   });
+}
+
+// --- rate limits (statusline tap) ---------------------------------------------------------
+
+/**
+ * Where `agentfdr statusline-tap` records the plan usage Claude Code reports
+ * to the status line: { [accountUuid]: { email, fiveHour, sevenDay, at, ... } }.
+ */
+export function rateLimitsFile() {
+  return process.env.AGENTFDR_RATE_FILE ?? join(homedir(), '.agentfdr', 'rate-limits.json');
+}
+
+let rateCache = { mtimeMs: -1, value: {} };
+
+export function readRateLimits(file = rateLimitsFile()) {
+  let st;
+  try {
+    st = statSync(file);
+  } catch {
+    return {};
+  }
+  if (rateCache.mtimeMs === st.mtimeMs) return rateCache.value;
+  let value = {};
+  try {
+    const d = JSON.parse(readFileSync(file, 'utf8'));
+    if (d && typeof d === 'object' && d.accounts && typeof d.accounts === 'object') value = d.accounts;
+  } catch {
+    value = {};
+  }
+  rateCache = { mtimeMs: st.mtimeMs, value };
+  return value;
+}
+
+// --- launching sessions ------------------------------------------------------------------
+
+/**
+ * POSIX `cksum` CRC (poly 0x04C11DB7, length appended). The user's tmux
+ * launcher names sessions `claude-<dir basename>-<cksum of the path>`; using
+ * the same name means the session the board starts is the one their shell
+ * wrapper attaches to for that directory.
+ */
+const CKSUM_TABLE = new Uint32Array(256);
+for (let i = 0; i < 256; i++) {
+  let c = i << 24;
+  for (let k = 0; k < 8; k++) c = c & 0x80000000 ? ((c << 1) ^ 0x04c11db7) >>> 0 : (c << 1) >>> 0;
+  CKSUM_TABLE[i] = c >>> 0;
+}
+export function cksum(str) {
+  const bytes = Buffer.from(str, 'utf8');
+  let crc = 0;
+  for (const b of bytes) crc = ((crc << 8) ^ CKSUM_TABLE[((crc >>> 24) ^ b) & 0xff]) >>> 0;
+  let len = bytes.length;
+  while (len > 0) {
+    crc = ((crc << 8) ^ CKSUM_TABLE[((crc >>> 24) ^ (len & 0xff)) & 0xff]) >>> 0;
+    len >>>= 8;
+  }
+  return (~crc) >>> 0;
+}
+
+/** tmux session name for a directory, in the `claude-<slug>-<cksum>` convention. */
+export function tmuxSessionName(dir) {
+  const slug = basename(dir).replace(/[.:]/g, '-');
+  return `claude-${slug}-${cksum(dir)}`;
+}
+
+const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+
+/**
+ * Validate a launch request and build the tmux invocation without running it.
+ * Returns { name, dir, argv, command }. Throws with a user-facing message.
+ * Only ever launches `claude` — the board is not a general shell.
+ */
+export function buildLaunch({ dir, prompt, model, resume, name } = {}) {
+  if (typeof dir !== 'string' || !dir.trim()) throw new Error('directory is required');
+  const abs = resolvePath(dir.trim().replace(/^~(?=\/|$)/, homedir()));
+  let st;
+  try {
+    st = statSync(abs);
+  } catch {
+    throw new Error(`no such directory: ${abs}`);
+  }
+  if (!st.isDirectory()) throw new Error(`not a directory: ${abs}`);
+  const args = ['claude'];
+  if (model != null && model !== '') {
+    if (!/^[\w.:-]{1,64}$/.test(model)) throw new Error('model must be a plain model name');
+    args.push('--model', shellQuote(model));
+  }
+  if (resume) args.push('--continue');
+  if (prompt != null && prompt !== '') {
+    if (typeof prompt !== 'string') throw new Error('prompt must be text');
+    if (prompt.length > 20_000) throw new Error('prompt too long');
+    args.push(shellQuote(prompt.replace(/\r\n?/g, '\n')));
+  }
+  const sessionName = name && /^[\w.-]{1,80}$/.test(name) ? name : tmuxSessionName(abs);
+  return { name: sessionName, dir: abs, command: args.join(' '), argv: ['new-session', '-d', '-s', sessionName, '-c', abs, args.join(' ')] };
+}
+
+/**
+ * Start a new Claude Code session in a detached tmux session and wait (briefly)
+ * for it to register itself. Returns { ok, name, dir, registered, pid, sessionId }.
+ * `registered: false` usually means Claude Code is showing a first-run dialog
+ * (workspace trust) in the pane and needs a keypress there.
+ */
+export async function launchSession(req, { run = tmux, waitMs = 8000, pollMs = 500, registry = () => readRegistry() } = {}) {
+  let plan = buildLaunch(req);
+  // A session for that directory already open? Start a second one under a
+  // numbered name instead of failing — parallel work in one repo is the point.
+  const existing = new Set((await run(['list-sessions', '-F', '#{session_name}']).catch(() => '')).split('\n').filter(Boolean));
+  if (existing.has(plan.name)) {
+    let n = 2;
+    while (existing.has(`${plan.name}-${n}`)) n++;
+    plan = buildLaunch({ ...req, name: `${plan.name}-${n}` });
+  }
+  await run(plan.argv);
+  const deadline = Date.now() + waitMs;
+  while (Date.now() < deadline) {
+    const hit = registry().find((e) => e.alive && e.tmux && e.tmux.startsWith(plan.name + ':'));
+    if (hit) return { ok: true, name: plan.name, dir: plan.dir, registered: true, pid: hit.pid, sessionId: hit.sessionId };
+    await sleep(pollMs);
+  }
+  return { ok: true, name: plan.name, dir: plan.dir, registered: false, pid: null, sessionId: null };
 }
 
 // --- steering (tmux) ---------------------------------------------------------------------

@@ -6,7 +6,9 @@ import { join } from 'node:path';
 import {
   readRegistry, readTail, summarizeTail, classify, collectBoard, findOverlaps,
   buildSendCommands, sendToSession, resolveRepo, readHistoryIndex, readDesktopStore, readCliAccount,
+  cksum, tmuxSessionName, buildLaunch, launchSession, readRateLimits,
 } from '../src/board.js';
+import { extractRateLimits, recordRateLimits, formatLine } from '../src/tap.js';
 import { isSameOrigin } from '../src/server.js';
 
 const T0 = Date.parse('2026-03-01T12:00:00Z');
@@ -329,4 +331,74 @@ test('isSameOrigin: only the board page itself may drive sessions', () => {
   assert.equal(isSameOrigin(req({ origin: 'http://localhost:4477', host: 'localhost:4477' })), true);
   assert.equal(isSameOrigin(req({ origin: 'http://evil.example', host: '127.0.0.1:4477' })), false);
   assert.equal(isSameOrigin(req({ host: '127.0.0.1:4477' })), false, 'no origin, no sec-fetch-site: not a browser page');
+});
+
+// --- launching ------------------------------------------------------------------------
+
+test('cksum matches POSIX cksum and names sessions like the shell wrapper', () => {
+  // Reference values from `printf %s "<str>" | cksum` on macOS.
+  assert.equal(cksum('/Users/kenta/myapp/agentfdr'), 1531704203);
+  assert.equal(cksum('a'), 1220704766);
+  assert.equal(cksum(''), 4294967295);
+  assert.equal(tmuxSessionName('/Users/kenta/myapp/agentfdr'), 'claude-agentfdr-1531704203');
+  assert.equal(tmuxSessionName('/x/kamihork.github.io'), `claude-kamihork-github-io-${cksum('/x/kamihork.github.io')}`);
+});
+
+test('buildLaunch validates and quotes; only ever runs claude', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentfdr-launch-'));
+  const p = buildLaunch({ dir, prompt: "it's a test\r\nline 2", model: 'claude-sonnet-5', resume: true });
+  assert.equal(p.dir, dir);
+  assert.equal(p.argv[0], 'new-session');
+  assert.deepEqual(p.argv.slice(1, 6), ['-d', '-s', p.name, '-c', dir]);
+  assert.equal(p.command, `claude --model 'claude-sonnet-5' --continue 'it'\\''s a test\nline 2'`);
+  assert.throws(() => buildLaunch({ dir: '' }), /directory is required/);
+  assert.throws(() => buildLaunch({ dir: join(dir, 'nope') }), /no such directory/);
+  assert.throws(() => buildLaunch({ dir, model: 'x; rm -rf /' }), /plain model name/);
+  assert.throws(() => buildLaunch({ dir, prompt: 'x'.repeat(20_001) }), /too long/);
+  assert.equal(buildLaunch({ dir, name: 'custom-1' }).name, 'custom-1');
+  assert.notEqual(buildLaunch({ dir, name: 'bad name;' }).name, 'bad name;', 'unsafe names fall back to the convention');
+});
+
+test('launchSession starts tmux, picks a free name, and waits for registration', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentfdr-launch-'));
+  const base = tmuxSessionName(dir);
+  const ran = [];
+  const run = async (args) => { ran.push(args); return args[0] === 'list-sessions' ? `${base}\nother\n` : ''; };
+  let calls = 0;
+  const registry = () => (++calls < 2 ? [] : [{ pid: 777, alive: true, tmux: `${base}-2:@1.%1`, sessionId: 'new-sid' }]);
+  const r = await launchSession({ dir, prompt: 'hi' }, { run, registry, waitMs: 2000, pollMs: 1 });
+  assert.equal(r.name, `${base}-2`, 'a session for that directory already exists -> numbered');
+  assert.equal(r.registered, true);
+  assert.equal(r.pid, 777);
+  assert.equal(r.sessionId, 'new-sid');
+  assert.equal(ran[1][0], 'new-session');
+  assert.ok(ran[1].includes(`${base}-2`));
+
+  const r2 = await launchSession({ dir }, { run: async () => '', registry: () => [], waitMs: 5, pollMs: 1 });
+  assert.equal(r2.registered, false, 'no registration in time is reported, not hidden');
+});
+
+// --- status-line tap ----------------------------------------------------------------------
+
+test('tap extracts rate limits, records them per account, and the board reads them back', () => {
+  const payload = {
+    session_id: 'sid', version: '2.1.233', model: { id: 'claude-fable-5', display_name: 'Fable 5' },
+    workspace: { current_dir: '/Users/x/myapp/agentfdr' },
+    rate_limits: { five_hour: { used_percentage: 26, resets_at: 1786969200 }, seven_day: { used_percentage: 9, resets_at: 1787529600 } },
+  };
+  const reading = extractRateLimits(payload);
+  assert.deepEqual(reading, { fiveHour: { pct: 26, resetsAt: 1786969200000 }, sevenDay: { pct: 9, resetsAt: 1787529600000 } });
+  assert.equal(extractRateLimits({}), null);
+  assert.equal(extractRateLimits({ rate_limits: {} }), null);
+
+  const file = join(mkdtempSync(join(tmpdir(), 'agentfdr-tap-')), 'rate-limits.json');
+  recordRateLimits(reading, { file, account: { accountUuid: 'acct-1', email: 'a@example.com' }, now: 1000, payload });
+  recordRateLimits({ fiveHour: { pct: 40, resetsAt: null }, sevenDay: null }, { file, account: { accountUuid: 'acct-2', email: 'b@example.com' }, now: 2000, payload });
+  const back = readRateLimits(file);
+  assert.deepEqual(Object.keys(back).sort(), ['acct-1', 'acct-2']);
+  assert.equal(back['acct-1'].email, 'a@example.com');
+  assert.equal(back['acct-1'].fiveHour.pct, 26);
+  assert.equal(back['acct-1'].model, 'claude-fable-5');
+  assert.equal(back['acct-2'].sevenDay, null);
+  assert.equal(formatLine(payload, reading), '[Fable 5] · myapp/agentfdr · 5h 26% · 7d 9%');
 });
