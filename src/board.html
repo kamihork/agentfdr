@@ -184,6 +184,21 @@
   #toast.on { opacity: 1; }
   #toast.err { background: var(--st-waiting); color: #fff; }
 
+  /* manual lanes: drag & drop */
+  .col.lane .cards { min-height: 60px; border-radius: 10px; transition: background 0.12s; }
+  .col.lane .cards.dropping { background: var(--select); outline: 1px dashed var(--accent); }
+  .card.draggable { cursor: grab; }
+  .card.dragging { opacity: 0.4; }
+  .drop-ph { height: 3px; border-radius: 2px; background: var(--accent); margin: -4px 0 1px; }
+  .col.lane h2 .lname { cursor: text; border-radius: 4px; padding: 0 3px; }
+  .col.lane h2 .lname:hover { background: var(--wash); }
+  .col.lane h2 input { font: inherit; font-weight: 650; text-transform: none; letter-spacing: normal; padding: 0 4px; width: 140px; }
+  .col.lane h2 .ldel { margin-left: auto; background: none; border: none; color: var(--text-muted); padding: 0 4px; font-size: 13px; }
+  .col.lane h2 .ldel:hover { color: var(--st-waiting); }
+  .col.lane h2 .ldel.confirm { color: #fff; background: var(--st-waiting); border-radius: 4px; }
+  #addLane { align-self: flex-start; flex: none; margin-top: 22px; white-space: nowrap; }
+  #dndHint { font-size: 11.5px; color: var(--text-muted); padding: 6px 16px 0; display: none; }
+  #dndHint.on { display: block; }
   @media (max-width: 1500px) { #accounts { display: none; } }
   @media (max-width: 900px) {
     body { overflow: auto; }
@@ -211,12 +226,14 @@
     <option value="state">by state</option>
     <option value="project">by project</option>
     <option value="account">by account</option>
+    <option value="manual">manual lanes</option>
   </select>
   <a id="viewerLink" href="/" target="_blank" title="Timeline viewer" style="font-size:12px;text-decoration:none">timeline ↗</a>
   <button id="langToggle" title="Language">日本語</button>
   <button id="themeToggle" title="Theme">◐</button>
 </header>
 <div id="warn"></div>
+<div id="dndHint"></div>
 <div id="main">
   <div id="boardWrap"><div id="board"></div></div>
   <aside id="drawer">
@@ -260,6 +277,9 @@ const I18N = {
     hintDerived: 'inferred from the transcript (this session reports no status)',
     parked: 'parked', parkedHint: 'Listed in the Claude desktop app, but no process is running for it right now (the app restarts it on your next message).',
     acctCli: 'CLI', acctDesktop: 'Desktop', otherAccount: 'other account', unknownAccount: 'account unknown',
+    unsorted: 'Unsorted', addLane: '+ lane', laneDefault: 'Lane', deleteLane: 'delete lane', renameHint: 'click to rename',
+    dndHint: 'Drag cards between lanes to triage them your way. Lanes and placement are saved in this browser; the state chip still tells you what the session is doing.',
+    defaultLanes: ['Now', 'Later', 'Watching', 'Hold'],
     tmuxOff: 'tmux is not running — steering is disabled',
     stopHint: 'Sends Esc: interrupts the running turn (or rejects an open dialog).',
     approveHint: 'Sends Enter: takes the highlighted (default) choice of the open dialog.',
@@ -290,6 +310,9 @@ const I18N = {
     hintDerived: 'トランスクリプトから推定（このセッションは状態を報告しません）',
     parked: '休止', parkedHint: 'Claude デスクトップアプリの一覧にはあるが、今はプロセスが動いていないセッション（次のメッセージでアプリが再起動します）。',
     acctCli: 'CLI', acctDesktop: 'Desktop', otherAccount: '別アカウント', unknownAccount: 'アカウント不明',
+    unsorted: '未分類', addLane: '+ レーン', laneDefault: 'レーン', deleteLane: 'レーンを削除', renameHint: 'クリックで名前を変更',
+    dndHint: 'カードをレーン間でドラッグして自分流に仕分けできます。レーンと配置はこのブラウザに保存され、状態チップはそのまま何をしているかを示します。',
+    defaultLanes: ['今やる', '後で', '監視中', '保留'],
     tmuxOff: 'tmux が起動していないため指示は送れません',
     stopHint: 'Esc を送ります: 実行中のターンを中断（ダイアログが開いていれば拒否）。',
     approveHint: 'Enter を送ります: 開いているダイアログのデフォルト選択肢を選びます。',
@@ -326,6 +349,7 @@ function applyLang() {
   opts[0].text = LANG === 'ja' ? '状態別' : 'by state';
   opts[1].text = LANG === 'ja' ? 'プロジェクト別' : 'by project';
   opts[2].text = LANG === 'ja' ? 'アカウント別' : 'by account';
+  opts[3].text = LANG === 'ja' ? '手動レーン' : 'manual lanes';
   $('acctFilter').options[0].text = LANG === 'ja' ? '全アカウント' : 'all accounts';
   $('projectFilter').placeholder = LANG === 'ja' ? 'プロジェクトで絞る…' : 'filter project…';
   $('composeText').placeholder = t().composePh;
@@ -337,6 +361,8 @@ let board = null;
 let lastFetchAt = 0;
 let fetchFailed = false;
 let selectedKey = null;
+let dragKey = null; // lane key of the card being dragged (manual lanes)
+let dropPh = null;  // insertion marker while dragging
 const confirmTimers = new Map(); // `${pid}:${action}` -> timeout id
 const armed = new Set();
 
@@ -360,6 +386,9 @@ async function poll() {
   } catch {
     fetchFailed = true;
   }
+  // A drag or a lane rename in progress must not be yanked out from under
+  // the pointer; the next poll (or the drop) redraws.
+  if (dragKey || document.querySelector('.lname input')) return;
   render();
 }
 setInterval(poll, 3000);
@@ -423,6 +452,8 @@ function renderAccounts() {
   el.textContent = parts.join(' · ');
   el.title = parts.join('\n');
 }
+const STATE_RANK = { waiting: 0, busy: 1, idle: 2, unknown: 3 };
+function stateRank(st) { return STATE_RANK[st] ?? 4; }
 function stateLabel(st) { return { waiting: t().waiting, busy: t().busy, idle: t().idleS, unknown: t().unknownS, ended: t().endedS }[st] ?? st; }
 // waitingFor comes from Claude Code's registry in English; 'possibly a dialog' is agentfdr's own inference.
 const WAITING_JA = { 'permission prompt': '許可待ち', 'input needed': '入力待ち', 'dialog open': 'ダイアログ表示中', 'sandbox request': 'サンドボックス要求', 'worker request': 'ワーカー要求', 'possibly a dialog': 'ダイアログの可能性' };
@@ -457,6 +488,18 @@ function render() {
     const q = $('projectFilter').value.trim().toLowerCase();
     const recent = (board.recent ?? []).filter((r) => !q || (r.project ?? '').toLowerCase().includes(q));
     if (recent.length && !$('acctFilter').value) cols.push({ key: 'ended', label: t().ended, color: 'var(--st-ended)', ended: recent, narrow: true });
+  } else if (groupBy === 'manual') {
+    const st = laneState();
+    const byLane = new Map([['unsorted', []], ...st.lanes.map((l) => [l.id, []])]);
+    for (const s of sessions) {
+      const p = st.placement[laneKey(s)];
+      byLane.get(p && byLane.has(p.lane) ? p.lane : 'unsorted').push(s);
+    }
+    const order = (s) => st.placement[laneKey(s)]?.order ?? Infinity;
+    for (const cards of byLane.values()) cards.sort((a, b) => order(a) - order(b) || stateRank(a.state) - stateRank(b.state));
+    const unsorted = byLane.get('unsorted');
+    cols.push({ key: 'unsorted', label: t().unsorted, color: null, cards: unsorted, lane: 'unsorted', fixed: true, wide: unsorted.length > 3 });
+    for (const l of st.lanes) cols.push({ key: l.id, label: l.name, color: null, cards: byLane.get(l.id), lane: l.id });
   } else {
     const key = groupBy === 'project' ? (s) => s.repoRoot ? baseName(s.repoRoot) : (s.project ?? '?') : (s) => s.account;
     const map = new Map();
@@ -465,14 +508,140 @@ function render() {
       cols.push({ key: k, label: groupBy === 'account' ? (k === 'desktop' ? t().desktop : t().cli) : k, color: null, cards });
     }
   }
+  const manual = groupBy === 'manual';
+  $('dndHint').textContent = t().dndHint;
+  $('dndHint').classList.toggle('on', manual);
+  const laneHead = (c) => c.fixed
+    ? `${esc(c.label)}`
+    : `<span class="lname" data-lane="${esc(c.lane)}" title="${esc(t().renameHint)}">${esc(c.label)}</span>`;
   const html = cols.map((c) => `
-    <section class="col${c.narrow ? ' narrow' : ''}${c.wide ? ' wide' : ''}">
-      <h2>${c.color ? `<i style="background:${c.color}"></i>` : ''}${esc(c.label)} <span class="n">${(c.cards ?? c.ended).length}</span></h2>
-      <div class="cards">${c.cards ? (c.cards.length ? c.cards.map(cardHtml).join('') : `<div class="empty">${t().empty}</div>`) : c.ended.map(endedHtml).join('')}</div>
-    </section>`).join('');
+    <section class="col${c.narrow ? ' narrow' : ''}${c.wide ? ' wide' : ''}${c.lane ? ' lane' : ''}"${c.lane ? ` data-lane="${esc(c.lane)}"` : ''}>
+      <h2>${c.color ? `<i style="background:${c.color}"></i>` : ''}${c.lane ? laneHead(c) : esc(c.label)} <span class="n">${(c.cards ?? c.ended).length}</span>${c.lane && !c.fixed ? `<button class="ldel${armed.has('lane:' + c.lane) ? ' confirm' : ''}" data-dellane="${esc(c.lane)}" title="${esc(t().deleteLane)}">${armed.has('lane:' + c.lane) ? t().confirm : '×'}</button>` : ''}</h2>
+      <div class="cards">${c.cards ? (c.cards.length ? c.cards.map((s) => cardHtml(s, manual)).join('') : `<div class="empty">${t().empty}</div>`) : c.ended.map(endedHtml).join('')}</div>
+    </section>`).join('') + (manual ? `<button id="addLane">${t().addLane}</button>` : '');
   $('board').innerHTML = html || `<div class="col"><div class="empty">${t().empty}</div></div>`;
   renderDrawer();
 }
+
+// --- manual lanes: user-defined columns, drag & drop, saved in this browser ---
+const LANES_KEY = 'agentfdr.board.lanes';
+function laneKey(s) { return s.sessionId ?? s.key; } // pids change across restarts; session ids don't
+function laneState() {
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem(LANES_KEY) || 'null'); } catch { st = null; }
+  if (!st || !Array.isArray(st.lanes) || typeof st.placement !== 'object') {
+    st = { lanes: t().defaultLanes.map((name, i) => ({ id: 'l' + (i + 1), name })), placement: {} };
+    saveLanes(st);
+  }
+  return st;
+}
+function saveLanes(st) {
+  // Placements outlive their sessions for a while (a restarted session keeps
+  // its lane), then get pruned so the store does not grow forever.
+  const cutoff = Date.now() - 30 * 24 * 3600_000;
+  for (const [k, p] of Object.entries(st.placement)) if ((p.at ?? 0) < cutoff) delete st.placement[k];
+  localStorage.setItem(LANES_KEY, JSON.stringify(st));
+}
+/** Put a card into `lane` at position `index` (among that lane's current cards) and renumber. */
+function placeCard(key, lane, index) {
+  const st = laneState();
+  const laneKeys = [...document.querySelectorAll(`.col.lane[data-lane="${CSS.escape(lane)}"] .card[data-key]`)]
+    .map((el) => el.dataset.lanekey).filter((k) => k && k !== key);
+  laneKeys.splice(Math.max(0, Math.min(index, laneKeys.length)), 0, key);
+  laneKeys.forEach((k, i) => { st.placement[k] = { lane, order: i, at: Date.now() }; });
+  saveLanes(st);
+}
+$('board').addEventListener('dragstart', (ev) => {
+  const card = ev.target.closest('.card.draggable');
+  if (!card) return;
+  dragKey = card.dataset.lanekey;
+  ev.dataTransfer.effectAllowed = 'move';
+  ev.dataTransfer.setData('text/plain', dragKey);
+  requestAnimationFrame(() => card.classList.add('dragging'));
+});
+$('board').addEventListener('dragover', (ev) => {
+  const zone = ev.target.closest('.col.lane .cards');
+  if (!zone || !dragKey) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.cards.dropping').forEach((z) => z !== zone && z.classList.remove('dropping'));
+  zone.classList.add('dropping');
+  // Insertion point: before the first card whose vertical middle is below the pointer.
+  const cards = [...zone.querySelectorAll('.card[data-key]:not(.dragging)')];
+  const next = cards.find((c) => ev.clientY < c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2);
+  if (!dropPh) { dropPh = document.createElement('div'); dropPh.className = 'drop-ph'; }
+  if (next) zone.insertBefore(dropPh, next); else zone.appendChild(dropPh);
+});
+$('board').addEventListener('dragleave', (ev) => {
+  const zone = ev.target.closest('.col.lane .cards');
+  if (zone && !zone.contains(ev.relatedTarget)) zone.classList.remove('dropping');
+});
+$('board').addEventListener('drop', (ev) => {
+  const zone = ev.target.closest('.col.lane .cards');
+  if (!zone || !dragKey) return;
+  ev.preventDefault();
+  const lane = zone.closest('.col.lane').dataset.lane;
+  const cards = [...zone.querySelectorAll('.card[data-key]:not(.dragging)')];
+  const index = dropPh && dropPh.parentNode === zone ? cards.findIndex((c) => c.compareDocumentPosition(dropPh) & Node.DOCUMENT_POSITION_PRECEDING) : cards.length;
+  placeCard(dragKey, lane, index === -1 ? cards.length : index);
+  endDrag();
+  render();
+});
+$('board').addEventListener('dragend', () => { endDrag(); render(); });
+function endDrag() {
+  dragKey = null;
+  dropPh?.remove();
+  document.querySelectorAll('.cards.dropping').forEach((z) => z.classList.remove('dropping'));
+  document.querySelectorAll('.card.dragging').forEach((c) => c.classList.remove('dragging'));
+}
+// lane management: add, rename (click the name), delete (two-click)
+$('board').addEventListener('click', (ev) => {
+  if (ev.target.id === 'addLane') {
+    const st = laneState();
+    const id = 'l' + (Math.max(0, ...st.lanes.map((l) => Number(l.id.slice(1)) || 0)) + 1);
+    st.lanes.push({ id, name: `${t().laneDefault} ${st.lanes.length + 1}` });
+    saveLanes(st);
+    render();
+    return;
+  }
+  const del = ev.target.closest('button[data-dellane]');
+  if (del) {
+    const lane = del.dataset.dellane;
+    const key = 'lane:' + lane;
+    if (armed.has(key)) {
+      armed.delete(key);
+      clearTimeout(confirmTimers.get(key));
+      const st = laneState();
+      st.lanes = st.lanes.filter((l) => l.id !== lane);
+      for (const [k, p] of Object.entries(st.placement)) if (p.lane === lane) delete st.placement[k];
+      saveLanes(st);
+    } else {
+      armed.add(key);
+      confirmTimers.set(key, setTimeout(() => { armed.delete(key); render(); }, 4000));
+    }
+    render();
+    return;
+  }
+  const name = ev.target.closest('.lname');
+  if (name && !name.querySelector('input')) {
+    const lane = name.dataset.lane;
+    const input = document.createElement('input');
+    input.value = name.textContent;
+    name.textContent = '';
+    name.appendChild(input);
+    input.focus();
+    input.select();
+    const commit = () => {
+      const st = laneState();
+      const l = st.lanes.find((x) => x.id === lane);
+      if (l && input.value.trim()) l.name = input.value.trim().slice(0, 40);
+      saveLanes(st);
+      render();
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') render(); });
+    input.addEventListener('blur', commit);
+  }
+});
 
 function renderCounts(all) {
   const n = (st) => all.filter((s) => s.state === st).length;
@@ -501,7 +670,7 @@ function overlapFor(s) {
   return (board.overlaps ?? []).find((o) => o.pids.includes(s.pid)) ?? null;
 }
 
-function cardHtml(s) {
+function cardHtml(s, draggable = false) {
   const now = board.generatedAt;
   const st = s.state;
   const since = s.stateSince ? fmtDur(now - s.stateSince) : null;
@@ -521,7 +690,7 @@ function cardHtml(s) {
     return `<button class="${isArmed ? 'confirm' : cls}" data-act="${act}" data-pid="${s.pid}" title="${esc(hint)}">${isArmed ? t().confirm : label}</button>`;
   };
   return `
-  <article class="card st-${st}${s.key === selectedKey ? ' selected' : ''}" data-key="${esc(s.key)}">
+  <article class="card st-${st}${s.key === selectedKey ? ' selected' : ''}${draggable ? ' draggable' : ''}" data-key="${esc(s.key)}" data-lanekey="${esc(laneKey(s))}"${draggable ? ' draggable="true"' : ''}>
     <div class="row between">
       <span class="row">
         <span class="chip state${s.stateDerived ? ' derived' : ''}${s.parked ? ' derived' : ''}" title="${s.parked ? esc(t().parkedHint) : s.stateDerived ? esc(t().hintDerived) : ''}">${esc(stateLabel(st))}${s.waitingFor ? ` · ${esc(waitingLabel(s.waitingFor))}` : ''}${s.parked ? ` · ${t().parked}` : ''}</span>
