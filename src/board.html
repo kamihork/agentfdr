@@ -392,6 +392,14 @@ function fmtK(n) {
 }
 function fmtUsd(v) { return v == null ? '—' : v >= 10 ? `$${v.toFixed(0)}` : `$${v.toFixed(2)}`; }
 function fmtTime(ms) { return ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'; }
+// Absolute local date+time, YYYY-MM-DD HH:MM: relative ages ("4d") say how
+// stale a card is; the date says which day the work belongs to.
+function fmtDate(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 function shortModel(m) { return (m ?? '').replace(/^claude-/, '').replace(/-\d{8}$/, ''); }
 function baseName(p) { return String(p).split('/').filter(Boolean).pop() ?? p; }
 function acctTitle(s) {
@@ -520,6 +528,7 @@ function cardHtml(s) {
         ${since ? `<span class="since">${esc(t().forS(since))}</span>` : ''}
       </span>
       <span class="row">
+        ${s.startedAt ? `<span class="since" title="${esc(t().dStarted)}">${fmtDate(s.startedAt)}</span>` : ''}
         <span class="chip acct ${s.account}" title="${esc(acctTitle(s))}">${s.account === 'desktop' ? t().desktop : t().cli}${acctSuffix(s)}</span>
         ${s.kind === 'bg' ? `<span class="chip kind">${t().bg}</span>` : ''}
       </span>
@@ -541,7 +550,7 @@ function cardHtml(s) {
     ${ov ? `<div class="overlap">⚠ ${t().sharesRepo(ov.pids.length - 1)}${ov.files.filter((f) => f.pids.includes(s.pid)).length ? ` · ${t().sameFiles} <span class="f">${ov.files.filter((f) => f.pids.includes(s.pid)).map((f) => esc(baseName(f.file))).join(', ')}</span>` : ''}</div>` : ''}
     ${flags.length ? `<div class="row">${flags.map((f) => `<span class="chip flag ${f.severity}" title="${esc(f.detail ?? '')}">${esc(f.title ?? f.type)}</span>`).join('')}</div>` : ''}
     <div class="actions">
-      ${s.transcript ? `<a href="/?live=1#${encodeURIComponent(s.transcript.id)}" target="_blank" data-stop>${t().open} ↗</a>` : ''}
+      ${s.transcript ? `<a href="/?live=1&uilang=${LANG}#${encodeURIComponent(s.transcript.id)}" target="_blank" data-stop>${t().open} ↗</a>` : ''}
       ${canSteer ? `<button data-act="steer" data-pid="${s.pid}">${t().steer}</button>` : `<span class="ro">${t().readonly}</span>`}
       ${canSteer && st === 'waiting' && !s.stateDerived ? btn('approve', 'ok', t().approve, t().approveHint) + btn('deny', 'danger', t().deny, t().denyHint) : ''}
       ${canSteer && st === 'busy' ? btn('interrupt', 'danger', t().stop, t().stopHint) : ''}
@@ -555,12 +564,12 @@ function endedHtml(r) {
   <article class="card st-ended" data-ended="${esc(r.id)}">
     <div class="row between">
       <span class="chip state">${t().endedS}</span>
-      <span class="since">${fmtDur(now - r.mtimeMs)} ${LANG === 'ja' ? '前' : 'ago'}</span>
+      <span class="since">${fmtDate(r.mtimeMs)} · ${fmtDur(now - r.mtimeMs)} ${LANG === 'ja' ? '前' : 'ago'}</span>
     </div>
     <div class="proj"><b>${esc(r.project ?? r.slug)}</b>${r.gitBranch ? ` <span class="muted">· ${esc(r.gitBranch)}</span>` : ''}</div>
     <div class="title">${esc(r.title ?? r.prompt ?? r.id.slice(0, 8))}</div>
     ${r.lastText ? `<div class="kv"><span class="k">${t().last}</span><span class="v">${esc(r.lastText)}</span></div>` : ''}
-    <div class="actions"><a href="/#${encodeURIComponent(r.id)}" target="_blank" data-stop>${t().open} ↗</a></div>
+    <div class="actions"><a href="/?uilang=${LANG}#${encodeURIComponent(r.id)}" target="_blank" data-stop>${t().open} ↗</a></div>
   </article>`;
 }
 
@@ -645,14 +654,14 @@ function renderDrawer() {
     return;
   }
   const now = board.generatedAt;
-  $('drawerTitle').textContent = `${s.project ?? ''} — ${s.title ?? s.name ?? ''}`;
+  $('drawerTitle').textContent = `${s.project ?? ''} — ${s.title ?? s.name ?? ''}${s.startedAt ? ` (${fmtDate(s.startedAt).slice(0, 10)})` : ''}`;
   const meta = [
     [t().dState, `${stateLabel(s.state)}${s.waitingFor ? ` · ${waitingLabel(s.waitingFor)}` : ''}${s.stateSince ? ` (${fmtDur(now - s.stateSince)})` : ''}`],
     [t().dProject, `${s.project ?? '?'}${s.gitBranch ? ` · ${s.gitBranch}` : ''}`],
     [t().dCwd, s.cwd ?? '—'],
     [t().dModel, shortModel(s.model) || '—'],
-    [t().dActivity, s.lastActivityAt ? `${fmtTime(s.lastActivityAt)} (${fmtDur(now - s.lastActivityAt)})` : '—'],
-    [t().dStarted, s.startedAt ? `${fmtTime(s.startedAt)} (${fmtDur(now - s.startedAt)})` : '—'],
+    [t().dActivity, s.lastActivityAt ? `${fmtDate(s.lastActivityAt)} (${fmtDur(now - s.lastActivityAt)})` : '—'],
+    [t().dStarted, s.startedAt ? `${fmtDate(s.startedAt)} (${fmtDur(now - s.startedAt)})` : '—'],
     [t().dPid, `${s.pid ?? '—'} · ${s.account === 'desktop' ? t().desktop : t().cli} · ${acctTitle(s)}${s.kind === 'bg' ? ' · bg' : ''}${s.version ? ` · v${s.version}` : ''}${s.parked ? ` · ${t().parked}` : ''}`],
     [t().dTmux, s.tmux ?? '—'],
     [t().dSession, s.sessionId ?? '—'],
@@ -668,7 +677,7 @@ function renderDrawer() {
         ${tu.text ? `<div class="tx">${esc(tu.text)}</div>` : ''}
       </div>`).join('')}</div>` : ''}
     <div><h4>${t().details}</h4><div class="meta">${meta.map(([k, v]) => `<span class="k">${esc(k)}</span><span class="mono" style="word-break:break-all">${esc(v)}</span>`).join('')}</div></div>
-    ${s.transcript ? `<div><a href="/?live=1#${encodeURIComponent(s.transcript.id)}" target="_blank">${t().open} ↗</a></div>` : ''}
+    ${s.transcript ? `<div><a href="/?live=1&uilang=${LANG}#${encodeURIComponent(s.transcript.id)}" target="_blank">${t().open} ↗</a></div>` : ''}
   `;
   const ro = !s.controllable;
   $('composeText').disabled = ro;
