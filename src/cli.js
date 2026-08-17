@@ -12,6 +12,7 @@ import { collectUsage, budgetPct } from './usage.js';
 import { diffSessions } from './diff.js';
 import { loadConfig } from './config.js';
 import { searchSessions } from './search.js';
+import { collectBoard, tmuxAvailable } from './board.js';
 
 const HELP = `agentfdr — flight data recorder for local coding agents
 
@@ -19,6 +20,12 @@ Usage:
   agentfdr list                 List recorded sessions (newest first)
   agentfdr open [session]       Open the timeline UI (default: newest session)
   agentfdr watch [session]      Open the timeline UI in live mode (auto-refresh)
+  agentfdr board                Live board of every running Claude Code session:
+                                busy / idle / waiting on you, current task, and
+                                cross-session file overlap; steer tmux sessions,
+                                start new ones
+  agentfdr statusline-tap       Status-line pass-through that records the plan's
+                                5h / 7d usage per account for the board (see README)
   agentfdr blame [session]      Print a markdown autopsy of a session
   agentfdr diff <a> <b>         Compare two sessions (failed attempt vs retry)
   agentfdr search <query>       Full-text search across all sessions
@@ -31,7 +38,7 @@ Usage:
 Options:
   --port <n>          Port for \`open\`/\`watch\` (default 4477; next free if taken)
   --no-browser        Don't auto-open the browser
-  --json              Machine-readable output (list, blame, assert)
+  --json              Machine-readable output (list, blame, assert, board)
   --lang <code>       Output language: en, ja (default: auto from LANG)
   --config <path>     Detector config (default: ./.agentfdr.json, then ~/.agentfdr.json)
                       Thresholds, disabled detectors, loop suppressions, custom regex rules
@@ -123,6 +130,8 @@ export async function main(argv) {
       return cmdOpen(ref, port, browse, false, config);
     case 'watch':
       return cmdOpen(ref, port, browse, true, config);
+    case 'board':
+      return cmdBoard(port, browse, flags.has('--json'), lang, config);
     case 'blame':
       return cmdBlame(ref, flags.has('--json'), lang, config);
     case 'diff':
@@ -181,6 +190,21 @@ async function cmdOpen(ref, port, browse, live, config) {
   if (boundPort !== port) console.log(`agentfdr: port ${port} in use, using ${boundPort}`);
   console.log(`agentfdr: recording deck at ${url}`);
   console.log(`          session ${id}${live ? '  (live)' : ''}`);
+  console.log(`          (ctrl-c to stop)`);
+  if (browse) openInBrowser(url);
+}
+
+async function cmdBoard(port, browse, asJson, lang, config) {
+  if (asJson) {
+    const board = collectBoard({ config, tmuxAvailable: await tmuxAvailable() });
+    console.log(JSON.stringify(board, null, 2));
+    return;
+  }
+  const s = t(lang);
+  const { url, port: boundPort } = await startServer({ port, config, page: '/board' });
+  if (boundPort !== port) console.log(`agentfdr: port ${port} in use, using ${boundPort}`);
+  console.log(`agentfdr: ${s.boardAt} ${url}`);
+  console.log(`          ${s.boardHint}`);
   console.log(`          (ctrl-c to stop)`);
   if (browse) openInBrowser(url);
 }

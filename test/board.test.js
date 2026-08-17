@@ -1,0 +1,457 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  readRegistry, readTail, summarizeTail, classify, collectBoard, findOverlaps,
+  buildSendCommands, sendToSession, resolveRepo, readHistoryIndex, readDesktopStore, readCliAccount,
+  cksum, tmuxSessionName, buildLaunch, launchSession, readRateLimits, isSteerable,
+} from '../src/board.js';
+import { extractRateLimits, recordRateLimits, formatLine } from '../src/tap.js';
+import { isSameOrigin, isLoopbackHost } from '../src/server.js';
+
+const T0 = Date.parse('2026-03-01T12:00:00Z');
+const ts = (i) => new Date(T0 + i * 1000).toISOString();
+
+const assistant = (i, mid, blocks, extra = {}) => JSON.stringify({
+  type: 'assistant', uuid: 'u' + i, timestamp: ts(i), sessionId: 's', cwd: '/repo/app', gitBranch: 'main', ...extra,
+  message: { id: mid, model: 'claude-opus-5', role: 'assistant', content: blocks, stop_reason: extra.stop ?? null,
+    usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 10 } },
+});
+const userLine = (i, text) => JSON.stringify({
+  type: 'user', uuid: 'p' + i, timestamp: ts(i), sessionId: 's', cwd: '/repo/app', message: { role: 'user', content: text },
+});
+const result = (i, id, isError = false) => JSON.stringify({
+  type: 'user', uuid: 'r' + i, timestamp: ts(i), sessionId: 's',
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: isError ? 'boom' : 'ok', is_error: isError }] },
+});
+const lastPromptLine = (text) => JSON.stringify({ type: 'last-prompt', lastPrompt: text, sessionId: 's' });
+
+// A session: prompt, an Edit that finished, then a Bash call still running.
+const LIVE_LINES = [
+  userLine(0, 'fix the login bug'),
+  assistant(1, 'm1', [{ type: 'tool_use', id: 'c1', name: 'Edit', input: { file_path: '/repo/app/src/login.js' } }], { stop: 'tool_use' }),
+  result(2, 'c1'),
+  assistant(3, 'm2', [{ type: 'text', text: 'Now running the tests.' }, { type: 'tool_use', id: 'c2', name: 'Bash', input: { command: 'npm test' } }], { stop: 'tool_use' }),
+];
+
+/** A fake ~/.claude: projects/<slug>/<id>.jsonl, sessions/<pid>.json, history.jsonl. */
+function fakeHome() {
+  const home = mkdtempSync(join(tmpdir(), 'agentfdr-board-'));
+  mkdirSync(join(home, 'projects'), { recursive: true });
+  mkdirSync(join(home, 'sessions'), { recursive: true });
+  const transcript = (slug, id, lines) => {
+    const dir = join(home, 'projects', slug);
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${id}.jsonl`);
+    writeFileSync(file, lines.join('\n') + '\n');
+    return file;
+  };
+  const registry = (pid, entry) => writeFileSync(join(home, 'sessions', `${pid}.json`), JSON.stringify({ pid, ...entry }));
+  const history = (entries) => writeFileSync(join(home, 'history.jsonl'), entries.map((e) => JSON.stringify(e)).join('\n') + '\n');
+  // Claude Desktop's store: <root>/<account>/<org>/local_<id>.json, every value a string.
+  const desktop = (account, org, id, entry) => {
+    const dir = join(home, 'desktop', account, org);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `local_${id}.json`), JSON.stringify(Object.fromEntries(Object.entries({ sessionId: `local_${id}`, ...entry }).map(([k, v]) => [k, String(v)]))));
+  };
+  const claudeJson = (oauthAccount) => {
+    const p = join(home, 'claude.json');
+    writeFileSync(p, JSON.stringify({ oauthAccount }));
+    return p;
+  };
+  return { home, transcript, registry, history, desktop, claudeJson };
+}
+
+// --- registry -----------------------------------------------------------------
+
+test('readRegistry parses entries defensively and probes liveness', () => {
+  const { home, registry } = fakeHome();
+  registry(100, { sessionId: 'a', cwd: '/x', status: 'busy', tmux: 'sess:@1.%1', entrypoint: 'cli', kind: 'interactive' });
+  registry(200, { sessionId: 'b', cwd: '/y', entrypoint: 'claude-desktop' }); // no status, no tmux
+  writeFileSync(join(home, 'sessions', '300.json'), '{ not json');
+  writeFileSync(join(home, 'sessions', 'notes.json'), JSON.stringify({ pid: 'x' }));
+  const reg = readRegistry({ root: join(home, 'sessions'), isAlive: (pid) => pid === 100 });
+  assert.equal(reg.length, 2);
+  const a = reg.find((e) => e.pid === 100);
+  assert.equal(a.alive, true);
+  assert.equal(a.status, 'busy');
+  assert.equal(a.tmux, 'sess:@1.%1');
+  const b = reg.find((e) => e.pid === 200);
+  assert.equal(b.alive, false);
+  assert.equal(b.status, null);
+  assert.equal(b.tmux, null);
+  assert.equal(b.entrypoint, 'claude-desktop');
+});
+
+// --- tail ---------------------------------------------------------------------
+
+test('readTail drops the partial first line and flags truncation', () => {
+  const { transcript } = fakeHome();
+  const file = transcript('p', 'id1', LIVE_LINES);
+  const whole = readTail(file, 10 * 1024 * 1024);
+  assert.equal(whole.truncated, false);
+  assert.equal(whole.text.split('\n').filter(Boolean).length, 4);
+  const part = readTail(file, 300);
+  assert.equal(part.truncated, true);
+  // every surviving line is complete JSON
+  for (const l of part.text.split('\n').filter(Boolean)) assert.doesNotThrow(() => JSON.parse(l));
+});
+
+test('summarizeTail parses a fragment and recovers the last-prompt record', () => {
+  const text = [
+    assistant(1, 'm1', [{ type: 'tool_use', id: 'c1', name: 'Bash', input: { command: 'ls' } }], { stop: 'tool_use' }),
+    result(2, 'c1'),
+    lastPromptLine('the prompt that scrolled away'),
+  ].join('\n');
+  const s = summarizeTail(text, { truncated: true });
+  assert.equal(s.model.turns.length, 1);
+  assert.equal(s.model.prompts.length, 0);
+  assert.equal(s.lastPromptRecord, 'the prompt that scrolled away');
+});
+
+// --- classification -----------------------------------------------------------------
+
+test('classify trusts the registry status when present', () => {
+  assert.deepEqual(classify({ status: 'waiting', waitingFor: 'permission prompt' }, null), { state: 'waiting', waitingFor: 'permission prompt', derived: false });
+  assert.equal(classify({ status: 'busy' }, null).state, 'busy');
+  assert.equal(classify({ status: 'idle' }, null).state, 'idle');
+  assert.equal(classify({ status: 'shell' }, null).state, 'idle');
+  assert.equal(classify({ status: null }, null).state, 'unknown');
+});
+
+test('classify derives state from the transcript tail when the registry is silent', () => {
+  const now = T0 + 100_000;
+  const pendingTail = { model: summarizeTail(LIVE_LINES.join('\n')).model, mtimeMs: now - 5_000 };
+  assert.deepEqual(classify({ status: null }, pendingTail, { now }), { state: 'busy', waitingFor: null, derived: true });
+  const quietTail = { ...pendingTail, mtimeMs: now - 5 * 60_000 };
+  const q = classify({ status: null }, quietTail, { now });
+  assert.equal(q.state, 'waiting');
+  assert.equal(q.derived, true);
+
+  const doneLines = [userLine(0, 'hi'), assistant(1, 'm1', [{ type: 'text', text: 'done' }], { stop: 'end_turn' })];
+  const doneTail = { model: summarizeTail(doneLines.join('\n')).model, mtimeMs: now - 1000 };
+  assert.equal(classify({ status: null }, doneTail, { now }).state, 'idle');
+});
+
+// --- the board -----------------------------------------------------------------------
+
+test('collectBoard joins registry, transcript tail, history and overlaps', (t) => {
+  const { home, transcript, registry, history, desktop, claudeJson } = fakeHome();
+  const prevDir = process.env.AGENTFDR_CLAUDE_DIR;
+  process.env.AGENTFDR_CLAUDE_DIR = join(home, 'projects');
+  t.after(() => { if (prevDir == null) delete process.env.AGENTFDR_CLAUDE_DIR; else process.env.AGENTFDR_CLAUDE_DIR = prevDir; });
+  const now = T0 + 60_000;
+
+  transcript('-repo-app', 'sid-cli', LIVE_LINES);
+  registry(11, { sessionId: 'sid-cli', cwd: '/repo/app', name: 'app-1', status: 'busy', statusUpdatedAt: now - 30_000, tmux: 'claude-app:@1.%1', entrypoint: 'cli', kind: 'interactive', startedAt: now - 60_000 });
+  // `claude -p` child of session 11: same pane -> shown, read-only, no overlap noise
+  transcript('-repo-app', 'sid-child', LIVE_LINES);
+  registry(15, { sessionId: 'sid-child', cwd: '/repo/app', name: 'child', status: 'busy', tmux: 'claude-app:@1.%1', entrypoint: 'sdk-cli', kind: 'interactive', startedAt: now - 1000 });
+
+  // Same repo, different session, edits the same file -> overlap. Its window
+  // holds no typed prompt (only a slash command) so the task falls back to history.
+  transcript('-repo-app', 'sid-two', [
+    userLine(0, '/compact'),
+    assistant(1, 'm9', [{ type: 'tool_use', id: 'z1', name: 'Write', input: { file_path: '/repo/app/src/login.js' } }], { stop: 'tool_use' }),
+    result(2, 'z1'),
+    assistant(3, 'm10', [{ type: 'text', text: 'Rewrote login.js.' }], { stop: 'end_turn' }),
+  ]);
+  registry(12, { sessionId: 'sid-two', cwd: '/repo/app', name: 'app-2', status: 'idle', statusUpdatedAt: now - 10_000, tmux: 'claude-app2:@2.%2', entrypoint: 'cli', kind: 'interactive' });
+  history([
+    { display: 'refactor the login flow', timestamp: now - 50_000, project: '/repo/app', sessionId: 'sid-two' },
+    { display: '/compact', timestamp: now - 20_000, project: '/repo/app', sessionId: 'sid-two' },
+  ]);
+
+  // Desktop app: no status, no tmux -> derived state, read-only.
+  transcript('-repo-web', 'sid-desk', [userLine(0, 'ship it'), assistant(1, 'm5', [{ type: 'text', text: 'shipped' }], { stop: 'end_turn' })]);
+  registry(13, { sessionId: 'sid-desk', cwd: '/repo/web', name: 'web-1', entrypoint: 'claude-desktop', kind: 'interactive' });
+
+  // Dead process: must not appear.
+  transcript('-repo-old', 'sid-dead', LIVE_LINES);
+  registry(14, { sessionId: 'sid-dead', cwd: '/repo/old', status: 'busy', tmux: 'x:@1.%1' });
+
+  // Ended session (no registry at all) with a fresh transcript -> "recent".
+  transcript('-repo-done', 'sid-ended', [userLine(0, 'write docs'), assistant(1, 'm7', [{ type: 'text', text: 'Docs written.' }], { stop: 'end_turn' })]);
+
+  // Desktop store: the live desktop session (title comes from here), a PARKED
+  // session of the same account (listed in the app, no process), a parked
+  // session of ANOTHER account, and an archived one (never shown).
+  const ME = 'acct-me', OTHER = 'acct-other', ORG = 'org-1';
+  desktop(ME, ORG, 'live1', { cliSessionId: 'sid-desk', cwd: '/repo/web', title: 'Ship the web app', model: 'claude-sonnet-5', lastActivityAt: now - 5000, createdAt: now - 60_000, isArchived: 'False', permissionMode: 'auto', completedTurns: 3 });
+  transcript('-repo-web', 'sid-parked', [userLine(0, 'plan the migration'), assistant(1, 'm8', [{ type: 'text', text: 'Plan drafted.' }], { stop: 'end_turn' })]);
+  desktop(ME, ORG, 'park1', { cliSessionId: 'sid-parked', cwd: '/repo/web', title: 'Migration plan', model: 'claude-opus-5', lastActivityAt: now - 3 * 3600_000, createdAt: now - 4 * 3600_000, isArchived: 'False', permissionMode: 'default', completedTurns: 12 });
+  desktop(OTHER, 'org-2', 'park2', { cliSessionId: 'sid-other', cwd: '/repo/other', title: 'Other account work', model: 'claude-opus-5', lastActivityAt: now - 600_000, createdAt: now - 900_000, isArchived: 'False' });
+  desktop(ME, ORG, 'arch1', { cliSessionId: 'sid-archived', cwd: '/repo/web', title: 'Old stuff', lastActivityAt: now - 9e6, isArchived: 'True' });
+  const claudeJsonFile = claudeJson({ emailAddress: 'me@example.com', accountUuid: ME, organizationUuid: ORG });
+
+  const reg = readRegistry({ root: join(home, 'sessions'), isAlive: (pid) => pid !== 14 });
+  const board = collectBoard({
+    registry: reg, history: readHistoryIndex(join(home, 'history.jsonl')), now, tmuxAvailable: true,
+    desktop: readDesktopStore(join(home, 'desktop')), cliAccount: readCliAccount(claudeJsonFile),
+  });
+
+  assert.deepEqual(board.sessions.filter((s) => s.pid != null).map((s) => s.pid).sort(), [11, 12, 13, 15]);
+  const child = board.sessions.find((s) => s.pid === 15);
+  assert.equal(child.controllable, false);
+  assert.equal(child.sharedPane, true);
+  assert.deepEqual(board.sessions.filter((s) => s.parked).map((s) => s.sessionId).sort(), ['sid-other', 'sid-parked']);
+  assert.deepEqual(board.accounts.cli, { email: 'me@example.com', accountUuid: ME, orgUuid: ORG });
+  assert.deepEqual(board.accounts.desktop.map((a) => [a.accountUuid, a.email, a.sessions]).sort(), [[ME, 'me@example.com', 2], [OTHER, null, 1]]);
+
+  const a = board.sessions.find((s) => s.pid === 11);
+  assert.equal(a.state, 'busy');
+  assert.equal(a.account, 'cli');
+  assert.equal(a.controllable, true);
+  assert.equal(a.project, 'app');
+  assert.equal(a.gitBranch, 'main');
+  assert.equal(a.prompt.text, 'fix the login bug');
+  assert.equal(a.prompt.inWindow, true);
+  assert.equal(a.currentTool.name, 'Bash');
+  assert.equal(a.lastText, 'Now running the tests.');
+  assert.deepEqual(a.window.files, ['/repo/app/src/login.js']);
+  assert.equal(a.window.turns, 2);
+  assert.equal(a.window.toolCalls, 2);
+  assert.equal(a.stateSince, now - 30_000);
+  assert.equal(a.recentTurns.length, 2);
+  assert.equal(a.recentTurns[1].tools[0].pending, true);
+
+  const b = board.sessions.find((s) => s.pid === 12);
+  assert.equal(b.state, 'idle');
+  assert.equal(b.prompt.text, 'refactor the login flow', 'slash commands are skipped; history supplies the task');
+  assert.equal(b.prompt.inWindow, false);
+  assert.equal(b.window.truncated, false, 'the window was complete, just prompt-less');
+
+  const d = board.sessions.find((s) => s.pid === 13);
+  assert.equal(d.account, 'desktop');
+  assert.equal(d.controllable, false);
+  assert.equal(d.state, 'idle');
+  assert.equal(d.stateDerived, true);
+  assert.equal(d.title, 'Ship the web app', 'desktop store title wins for desktop sessions');
+  assert.equal(d.accountEmail, 'me@example.com');
+  assert.equal(d.key, '13');
+  assert.equal(a.accountEmail, 'me@example.com', 'CLI cards carry the CLI login');
+
+  const parked = board.sessions.find((s) => s.sessionId === 'sid-parked');
+  assert.equal(parked.state, 'idle');
+  assert.equal(parked.parked, true);
+  assert.equal(parked.pid, null);
+  assert.equal(parked.key, 'd:local_park1');
+  assert.equal(parked.controllable, false);
+  assert.equal(parked.title, 'Migration plan');
+  assert.equal(parked.lastText, 'Plan drafted.', 'its transcript is still read for the card body');
+  assert.equal(parked.stateSince, now - 3 * 3600_000);
+  const other = board.sessions.find((s) => s.sessionId === 'sid-other');
+  assert.equal(other.accountEmail, null, 'a desktop session from another account is not labelled with the CLI login');
+  assert.equal(other.accountUuid, OTHER);
+  assert.ok(!board.sessions.some((s) => s.sessionId === 'sid-archived'));
+  // Parked sessions do not count as live for overlap purposes, and their
+  // transcripts are cards now, not "recently ended".
+  assert.ok(!board.overlaps.some((o) => o.repo === '/repo/web'));
+  assert.ok(!board.recent.some((r) => r.id === 'sid-parked'));
+
+  assert.equal(board.overlaps.length, 1);
+  assert.deepEqual(board.overlaps[0].pids.sort(), [11, 12], 'the shared-pane child does not count as a second live editor');
+  assert.deepEqual(board.overlaps[0].files, [{ file: '/repo/app/src/login.js', pids: [11, 12] }]);
+
+  // The ended session AND the transcript whose process died both count as recent.
+  assert.deepEqual(board.recent.map((r) => r.id).sort(), ['sid-dead', 'sid-ended']);
+  const ended = board.recent.find((r) => r.id === 'sid-ended');
+  assert.equal(ended.project, 'app');
+  assert.equal(ended.lastText, 'Docs written.');
+});
+
+test('findOverlaps ignores repos with a single session', () => {
+  const mk = (pid, repoRoot, files) => ({ pid, repoRoot, window: { files } });
+  const ov = findOverlaps([mk(1, '/a', ['/a/x']), mk(2, '/b', ['/b/y']), mk(3, '/b', ['/b/y', '/b/z'])]);
+  assert.equal(ov.length, 1);
+  assert.equal(ov[0].repo, '/b');
+  assert.deepEqual(ov[0].files, [{ file: '/b/y', pids: [2, 3] }]);
+});
+
+test('resolveRepo maps a worktree back to its parent repository', () => {
+  const root = mkdtempSync(join(tmpdir(), 'agentfdr-repo-'));
+  mkdirSync(join(root, 'main', '.git'), { recursive: true });
+  mkdirSync(join(root, 'wt', 'src'), { recursive: true });
+  writeFileSync(join(root, 'wt', '.git'), `gitdir: ${join(root, 'main', '.git', 'worktrees', 'wt')}\n`);
+  assert.deepEqual(resolveRepo(join(root, 'main', 'src')), { repoRoot: join(root, 'main'), worktreeOf: null });
+  assert.deepEqual(resolveRepo(join(root, 'wt', 'src')), { repoRoot: join(root, 'wt'), worktreeOf: join(root, 'main') });
+});
+
+// --- steering ------------------------------------------------------------------------
+
+test('buildSendCommands types single-line text literally and submits it', () => {
+  const cmds = buildSendCommands('claude-app:@1.%1', { text: 'run the tests -- now' });
+  assert.deepEqual(cmds, [
+    ['send-keys', '-t', 'claude-app:@1.%1', '-l', '--', 'run the tests -- now'],
+    ['send-keys', '-t', 'claude-app:@1.%1', 'Enter'],
+  ]);
+});
+
+test('buildSendCommands pastes multi-line text as one buffer', () => {
+  const cmds = buildSendCommands('s:@1.%1', { text: 'a\r\nb\nc' });
+  assert.equal(cmds[0][0], 'set-buffer');
+  assert.equal(cmds[0].at(-1), 'a\nb\nc');
+  assert.equal(cmds[1][0], 'paste-buffer');
+  assert.ok(cmds[1].includes('-p'), 'bracketed paste so newlines do not submit');
+  assert.deepEqual(cmds[2], ['send-keys', '-t', 's:@1.%1', 'Enter']);
+});
+
+test('buildSendCommands maps actions to keys and refuses everything else', () => {
+  assert.deepEqual(buildSendCommands('s:@1.%1', { action: 'approve' }), [['send-keys', '-t', 's:@1.%1', 'Enter']]);
+  assert.deepEqual(buildSendCommands('s:@1.%1', { action: 'deny' }), [['send-keys', '-t', 's:@1.%1', 'Escape']]);
+  assert.deepEqual(buildSendCommands('s:@1.%1', { action: 'interrupt' }), [['send-keys', '-t', 's:@1.%1', 'Escape']]);
+  assert.throws(() => buildSendCommands('s:@1.%1', { action: 'kill' }), /unknown action/);
+  assert.throws(() => buildSendCommands('s:@1.%1', { text: '   ' }), /nothing to send/);
+  assert.throws(() => buildSendCommands('s:@1.%1', { text: 'x'.repeat(20_001) }), /too long/);
+  assert.throws(() => buildSendCommands(null, { text: 'hi' }), /no controllable tmux pane/);
+  assert.throws(() => buildSendCommands('s:@1.%1; rm -rf /', { text: 'hi' }), /no controllable tmux pane/);
+});
+
+test('sendToSession runs the tmux sequence for a live tmux session only', async () => {
+  const cli = { entrypoint: 'cli', kind: 'interactive' };
+  const registry = [
+    { pid: 1, alive: true, tmux: 'claude-a:@1.%1', status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: 5000, startedAt: 1, ...cli },
+    { pid: 2, alive: true, tmux: null, ...cli },
+    { pid: 3, alive: false, tmux: 'claude-c:@3.%3', ...cli },
+    // `claude -p` started from session 1: same pane, not the owner
+    { pid: 4, alive: true, tmux: 'claude-a:@1.%1', entrypoint: 'sdk-cli', kind: 'interactive', startedAt: 2 },
+  ];
+  const ran = [];
+  const run = async (args) => { ran.push(args); };
+  const r = await sendToSession(1, { text: 'hello' }, { registry, run, delayMs: 0 });
+  assert.equal(r.ok, true);
+  assert.equal(r.target, 'claude-a:@1.%1');
+  assert.equal(ran.length, 2);
+  assert.equal(ran[1].at(-1), 'Enter');
+  await assert.rejects(() => sendToSession(2, { text: 'hello' }, { registry, run }), /read-only/);
+  await assert.rejects(() => sendToSession(3, { text: 'hello' }, { registry, run }), /no live session/);
+  await assert.rejects(() => sendToSession(99, { text: 'hello' }, { registry, run }), /no live session/);
+  await assert.rejects(() => sendToSession(4, { text: 'hello' }, { registry, run }), /shares its pane/);
+  assert.equal(isSteerable(registry[0], registry), true);
+  assert.equal(isSteerable(registry[3], registry), false);
+
+  // Key presses are checked against the state the page displayed.
+  ran.length = 0;
+  const ok = await sendToSession(1, { action: 'approve', expect: { status: 'waiting', waitingFor: 'permission prompt', stateSince: 5000 } }, { registry, run, delayMs: 0 });
+  assert.equal(ok.sent, 'approve');
+  assert.deepEqual(ran, [['send-keys', '-t', 'claude-a:@1.%1', 'Enter']]);
+  ran.length = 0;
+  await assert.rejects(
+    () => sendToSession(1, { action: 'approve', expect: { status: 'waiting', waitingFor: 'permission prompt', stateSince: 4000 } }, { registry, run, delayMs: 0 }),
+    (err) => err.code === 'STATE_CHANGED', 'a newer dialog than the one clicked: refuse');
+  await assert.rejects(
+    () => sendToSession(1, { action: 'deny', expect: { status: 'busy', waitingFor: null } }, { registry, run, delayMs: 0 }),
+    /state changed/);
+  assert.equal(ran.length, 0, 'nothing was sent on refusal');
+});
+
+test('buildSendCommands strips control characters and uses a unique paste buffer', () => {
+  const [single] = buildSendCommands('s:@1.%1', { text: 'a\u001b[201~b\u0007c' });
+  assert.equal(single.at(-1), 'a[201~bc');
+  const a = buildSendCommands('s:@1.%1', { text: 'x\ny' });
+  const b = buildSendCommands('s:@1.%1', { text: 'x\ny' });
+  assert.notEqual(a[0][2], b[0][2], 'buffer names differ per call');
+  assert.equal(a[1][a[1].indexOf('-b') + 1], a[0][2]);
+  // non-ASCII directory names are legal tmux targets
+  assert.doesNotThrow(() => buildSendCommands('claude-日本語プロジェクト-123:@1.%1', { text: 'hi' }));
+});
+
+test('isSameOrigin: only the board page itself may drive sessions', () => {
+  const req = (headers) => ({ headers });
+  assert.equal(isSameOrigin(req({ 'sec-fetch-site': 'same-origin', host: '127.0.0.1:4477' })), true);
+  assert.equal(isSameOrigin(req({ 'sec-fetch-site': 'same-origin', host: 'localhost:4477' })), true);
+  assert.equal(isSameOrigin(req({ 'sec-fetch-site': 'same-origin', host: 'evil.example:4477' })), false, 'DNS rebinding: browser says same-origin, Host says otherwise');
+  assert.equal(isSameOrigin(req({ 'sec-fetch-site': 'same-origin' })), false, 'no Host at all');
+  assert.equal(isSameOrigin(req({ 'sec-fetch-site': 'cross-site', origin: 'http://127.0.0.1:4477', host: '127.0.0.1:4477' })), false);
+  assert.equal(isSameOrigin(req({ origin: 'http://127.0.0.1:4477', host: '127.0.0.1:4477' })), true);
+  assert.equal(isSameOrigin(req({ origin: 'http://localhost:4477', host: 'localhost:4477' })), true);
+  assert.equal(isSameOrigin(req({ origin: 'http://evil.example', host: '127.0.0.1:4477' })), false);
+  assert.equal(isSameOrigin(req({ host: '127.0.0.1:4477' })), false, 'no origin, no sec-fetch-site: not a browser page');
+  assert.equal(isLoopbackHost('127.0.0.1:4477'), true);
+  assert.equal(isLoopbackHost('[::1]:4477'), true);
+  assert.equal(isLoopbackHost('localhost'), true);
+  assert.equal(isLoopbackHost('evil.example:4477'), false);
+  assert.equal(isLoopbackHost(undefined), false);
+});
+
+// --- launching ------------------------------------------------------------------------
+
+test('cksum matches POSIX cksum and names sessions like the shell wrapper', () => {
+  // Reference values from `printf %s "<str>" | cksum` on macOS.
+  assert.equal(cksum('/Users/kenta/myapp/agentfdr'), 1531704203);
+  assert.equal(cksum('a'), 1220704766);
+  assert.equal(cksum(''), 4294967295);
+  assert.equal(tmuxSessionName('/Users/kenta/myapp/agentfdr'), 'claude-agentfdr-1531704203');
+  assert.equal(tmuxSessionName('/x/kamihork.github.io'), `claude-kamihork-github-io-${cksum('/x/kamihork.github.io')}`);
+});
+
+test('buildLaunch validates and quotes; only ever runs claude', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentfdr-launch-'));
+  const p = buildLaunch({ dir, prompt: "it's a test\r\nline 2", model: 'claude-sonnet-5', resume: true });
+  assert.equal(p.dir, dir);
+  assert.equal(p.argv[0], 'new-session');
+  assert.deepEqual(p.argv.slice(1, 6), ['-d', '-s', p.name, '-c', dir]);
+  // The prompt gets a leading space: `claude update` would run the updater,
+  // `claude --version` is a flag; ` update` / ` --version` are prompts.
+  assert.equal(p.command, `claude --model 'claude-sonnet-5' --continue ' it'\\''s a test\nline 2'`);
+  assert.equal(buildLaunch({ dir, prompt: '--version' }).command, `claude ' --version'`);
+  assert.throws(() => buildLaunch({ dir: '' }), /directory is required/);
+  assert.throws(() => buildLaunch({ dir: join(dir, 'nope') }), /no such directory/);
+  assert.throws(() => buildLaunch({ dir, model: 'x; rm -rf /' }), /plain model name/);
+  assert.throws(() => buildLaunch({ dir, prompt: 'x'.repeat(20_001) }), /too long/);
+  assert.equal(buildLaunch({ dir, name: 'custom-1' }).name, 'custom-1');
+  assert.throws(() => buildLaunch({ dir, name: 'bad name;' }), /invalid session name/, 'unsafe names are an error, never a silent fallback');
+  // Non-ASCII directory: still a single safe token, still steerable.
+  const jp = join(dir, '日本語 プロジェクト.v2');
+  mkdirSync(jp);
+  const n = tmuxSessionName(jp);
+  assert.equal(n, `claude-日本語プロジェクト-v2-${cksum(jp)}`);
+  assert.equal(buildLaunch({ dir: jp }).name, n);
+  assert.equal(buildLaunch({ dir: jp, name: `${n}-2` }).name, `${n}-2`);
+});
+
+test('launchSession starts tmux, picks a free name, and waits for registration', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agentfdr-launch-'));
+  const base = tmuxSessionName(dir);
+  const ran = [];
+  const run = async (args) => { ran.push(args); return args[0] === 'list-sessions' ? `${base}\nother\n` : ''; };
+  let calls = 0;
+  const registry = () => (++calls < 2 ? [] : [{ pid: 777, alive: true, tmux: `${base}-2:@1.%1`, sessionId: 'new-sid' }]);
+  const r = await launchSession({ dir, prompt: 'hi' }, { run, registry, waitMs: 2000, pollMs: 1 });
+  assert.equal(r.name, `${base}-2`, 'a session for that directory already exists -> numbered');
+  assert.equal(r.registered, true);
+  assert.equal(r.pid, 777);
+  assert.equal(r.sessionId, 'new-sid');
+  assert.equal(ran[1][0], 'new-session');
+  assert.ok(ran[1].includes(`${base}-2`));
+
+  const r2 = await launchSession({ dir }, { run: async () => '', registry: () => [], waitMs: 5, pollMs: 1 });
+  assert.equal(r2.registered, false, 'no registration in time is reported, not hidden');
+});
+
+// --- status-line tap ----------------------------------------------------------------------
+
+test('tap extracts rate limits, records them per account, and the board reads them back', () => {
+  const payload = {
+    session_id: 'sid', version: '2.1.233', model: { id: 'claude-fable-5', display_name: 'Fable 5' },
+    workspace: { current_dir: '/Users/x/myapp/agentfdr' },
+    rate_limits: { five_hour: { used_percentage: 26, resets_at: 1786969200 }, seven_day: { used_percentage: 9, resets_at: 1787529600 } },
+  };
+  const reading = extractRateLimits(payload);
+  assert.deepEqual(reading, { fiveHour: { pct: 26, resetsAt: 1786969200000 }, sevenDay: { pct: 9, resetsAt: 1787529600000 } });
+  assert.equal(extractRateLimits({}), null);
+  assert.equal(extractRateLimits({ rate_limits: {} }), null);
+
+  const file = join(mkdtempSync(join(tmpdir(), 'agentfdr-tap-')), 'rate-limits.json');
+  recordRateLimits(reading, { file, account: { accountUuid: 'acct-1', email: 'a@example.com' }, now: 1000, payload });
+  recordRateLimits({ fiveHour: { pct: 40, resetsAt: null }, sevenDay: null }, { file, account: { accountUuid: 'acct-2', email: 'b@example.com' }, now: 2000, payload });
+  const back = readRateLimits(file);
+  assert.deepEqual(Object.keys(back).sort(), ['acct-1', 'acct-2']);
+  assert.equal(back['acct-1'].email, 'a@example.com');
+  assert.equal(back['acct-1'].fiveHour.pct, 26);
+  assert.equal(back['acct-1'].model, 'claude-fable-5');
+  assert.equal(back['acct-2'].sevenDay, null);
+  assert.equal(formatLine(payload, reading), '[Fable 5] · myapp/agentfdr · 5h 26% · 7d 9%');
+});

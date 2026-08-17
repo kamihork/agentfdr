@@ -8,6 +8,8 @@ export function resolveLang(explicit) {
 
 const STRINGS = {
   en: {
+    boardAt: 'live session board at',
+    boardHint: 'every running Claude Code session; tmux sessions can be steered from the page',
     flightReport: 'Flight report',
     session: 'Session',
     project: 'Project',
@@ -61,6 +63,8 @@ const STRINGS = {
       'Plan limits are not published and not stored locally. Calibrate --budget-5h / --budget-week against Claude Code\'s /usage screen.',
   },
   ja: {
+    boardAt: 'ライブセッションボード:',
+    boardHint: '稼働中の全 Claude Code セッションを表示。tmux 上のセッションには画面から指示を送れます',
     flightReport: 'フライトレポート',
     session: 'セッション',
     project: 'プロジェクト',

@@ -1,0 +1,1028 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentfdr — board</title>
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface-1: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --border: rgba(11, 11, 11, 0.10);
+    --wash: rgba(11, 11, 11, 0.05);
+    --select: rgba(42, 120, 214, 0.14);
+    --accent: #2a78d6;
+    --st-waiting: #d03b3b;
+    --st-busy: #1baf7a;
+    --st-idle: #eda100;
+    --st-unknown: #898781;
+    --st-ended: #b5b3aa;
+    --status-critical: #d03b3b;
+    --status-warning: #fab219;
+    --tool-shell: #2a78d6;
+    --tool-write: #1baf7a;
+    --tool-read: #eda100;
+    --tool-agent: #4a3aa7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7;
+      --text-muted: #898781; --grid: #2c2c2a; --border: rgba(255,255,255,0.10);
+      --wash: rgba(255,255,255,0.07); --select: rgba(57,135,229,0.20); --accent: #3987e5;
+      --st-waiting: #e0524f; --st-busy: #199e70; --st-idle: #c98500; --st-ended: #4a4a47;
+      --tool-shell: #3987e5; --tool-write: #199e70; --tool-read: #c98500; --tool-agent: #9085e9;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7;
+    --text-muted: #898781; --grid: #2c2c2a; --border: rgba(255,255,255,0.10);
+    --wash: rgba(255,255,255,0.07); --select: rgba(57,135,229,0.20); --accent: #3987e5;
+    --st-waiting: #e0524f; --st-busy: #199e70; --st-idle: #c98500; --st-ended: #4a4a47;
+    --tool-shell: #3987e5; --tool-write: #199e70; --tool-read: #c98500; --tool-agent: #9085e9;
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--page); color: var(--text-primary);
+    font: 13.5px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  a { color: var(--accent); }
+  button, select, input, textarea {
+    font: inherit; color: var(--text-primary);
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px;
+  }
+  button, select { cursor: pointer; }
+  button:hover { background: var(--wash); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.danger { color: var(--st-waiting); border-color: var(--st-waiting); }
+  button.ok { color: var(--st-busy); border-color: var(--st-busy); }
+  button.confirm { background: var(--st-waiting); color: #fff; border-color: var(--st-waiting); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  .muted { color: var(--text-muted); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  header {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 16px 8px; border-bottom: 1px solid var(--grid); flex: none;
+  }
+  header h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; margin-right: 4px; }
+  header h1 span { color: var(--text-muted); font-weight: 400; }
+  .spacer { flex: 1; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+  .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--st-busy); box-shadow: 0 0 0 0 rgba(27,175,122,0.6); animation: pulse 2s infinite; }
+  .live.stale .dot { background: var(--st-waiting); animation: none; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(27,175,122,0.5); } 70% { box-shadow: 0 0 0 7px rgba(27,175,122,0); } 100% { box-shadow: 0 0 0 0 rgba(27,175,122,0); } }
+  .counts { display: inline-flex; gap: 6px; }
+  .count { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 12px; background: var(--wash); }
+  .count i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  #projectFilter { width: 150px; }
+
+  #warn {
+    display: none; padding: 7px 16px; font-size: 12.5px; flex: none;
+    background: color-mix(in srgb, var(--status-warning) 18%, var(--page)); border-bottom: 1px solid var(--grid);
+  }
+  #warn.on { display: block; }
+  #warn b { font-weight: 650; }
+  #warn .files { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
+
+  #main { flex: 1; display: flex; min-height: 0; }
+  #boardWrap { flex: 1; overflow: auto; padding: 12px 16px 16px; }
+  #board { display: flex; gap: 12px; align-items: flex-start; min-height: 100%; }
+  .col { flex: 1 1 0; min-width: 260px; max-width: 460px; display: flex; flex-direction: column; gap: 8px; }
+  .col.narrow { flex: 0.75 1 0; }
+  /* The idle column is where sessions pile up; let it take the room the empty
+     columns leave and lay its cards out as a grid instead of one long stack. */
+  .col.wide { flex: 2 1 0; max-width: none; }
+  .col .cards { display: flex; flex-direction: column; gap: 8px; }
+  .col.wide .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); align-items: start; }
+  .col h2 { font-size: 12.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); display: flex; align-items: center; gap: 7px; padding: 2px 2px 0; }
+  .col h2 i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .col h2 .n { color: var(--text-muted); font-weight: 500; }
+  .col .empty { color: var(--text-muted); font-size: 12px; padding: 14px 10px; border: 1px dashed var(--grid); border-radius: 10px; text-align: center; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px 10px 14px; position: relative; cursor: pointer;
+    display: flex; flex-direction: column; gap: 5px; overflow: hidden;
+  }
+  .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--stripe, var(--st-unknown)); }
+  .card:hover { border-color: var(--text-muted); }
+  .card.selected { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .card.st-waiting { --stripe: var(--st-waiting); }
+  .card.st-busy { --stripe: var(--st-busy); }
+  .card.st-idle { --stripe: var(--st-idle); }
+  .card.st-unknown { --stripe: var(--st-unknown); }
+  .card.st-ended { --stripe: var(--st-ended); opacity: 0.85; }
+  .card .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+  .card .row.between { justify-content: space-between; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .chip.state { color: #fff; background: var(--stripe, var(--st-unknown)); }
+  .chip.state.derived { opacity: 0.8; }
+  .chip.acct { background: var(--wash); color: var(--text-secondary); font-weight: 600; }
+  .chip.acct.desktop { color: var(--tool-agent); }
+  .chip.kind { background: transparent; border: 1px solid var(--border); color: var(--text-muted); font-weight: 500; }
+  .chip.flag { background: color-mix(in srgb, var(--status-warning) 22%, transparent); color: var(--text-primary); font-weight: 500; }
+  .chip.flag.critical { background: color-mix(in srgb, var(--status-critical) 18%, transparent); }
+  .card .since { color: var(--text-muted); font-size: 11.5px; }
+  .card .proj { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .proj b { color: var(--text-primary); font-weight: 650; }
+  .card .title { font-weight: 650; font-size: 13.5px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .kv { display: grid; grid-template-columns: 38px 1fr; gap: 2px 6px; font-size: 12.5px; }
+  .card .kv .k { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding-top: 2px; }
+  .card .kv .v { color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+  .card .kv .v.now { color: var(--text-primary); }
+  .card .kv .v .tool { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; padding: 0 5px; border-radius: 4px; background: var(--wash); }
+  .card .stats { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-muted); }
+  .card .stats b { color: var(--text-secondary); font-weight: 600; }
+  .card .stats .err b { color: var(--st-waiting); }
+  .card .files { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .files span { color: var(--tool-write); }
+  .card .overlap { font-size: 11.5px; color: var(--text-primary); background: color-mix(in srgb, var(--status-warning) 18%, transparent); border-radius: 6px; padding: 3px 7px; }
+  .card .overlap .f { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .card .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+  .card .actions button { padding: 3px 9px; font-size: 12px; }
+  .card .actions a { font-size: 12px; align-self: center; text-decoration: none; }
+  .card .ro { font-size: 11.5px; color: var(--text-muted); align-self: center; }
+
+  #drawer {
+    width: 420px; flex: none; border-left: 1px solid var(--grid); background: var(--surface-1);
+    display: none; flex-direction: column; min-height: 0;
+  }
+  #drawer.open { display: flex; }
+  #drawerHead { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--grid); }
+  #drawerHead h3 { font-size: 14px; font-weight: 650; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #drawerBody { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+  #drawerBody h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }
+  #drawerBody .block { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; color: var(--text-secondary); max-height: 220px; overflow: auto; background: var(--wash); border-radius: 8px; padding: 8px 10px; }
+  #drawerBody .meta { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: 12px; }
+  #drawerBody .meta .k { color: var(--text-muted); }
+  #drawerBody .turn { border-left: 2px solid var(--grid); padding: 2px 0 2px 10px; margin-bottom: 6px; font-size: 12px; }
+  #drawerBody .turn .th { color: var(--text-muted); font-size: 11px; }
+  #drawerBody .turn .tl { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #drawerBody .turn .tl.err { color: var(--st-waiting); }
+  #drawerBody .turn .tl.pending { color: var(--st-busy); }
+  #drawerBody .turn .tx { color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #composer { border-top: 1px solid var(--grid); padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+  #composer textarea { width: 100%; min-height: 84px; resize: vertical; font-size: 13px; }
+  #composer .crow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #composer .hint { font-size: 11.5px; color: var(--text-muted); flex: 1; }
+  #composer .ro { font-size: 12px; color: var(--text-muted); }
+
+  #limits { display: none; gap: 8px; flex-wrap: wrap; align-items: center; padding: 6px 16px; border-bottom: 1px solid var(--grid); font-size: 12px; }
+  #limits.on { display: flex; }
+  #limits .lim { display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px; border-radius: 999px; background: var(--wash); }
+  #limits .lim b { font-weight: 650; }
+  #limits .lim .who { color: var(--text-secondary); }
+  #limits .bar { display: inline-block; width: 64px; height: 7px; border-radius: 4px; background: var(--grid); overflow: hidden; vertical-align: middle; }
+  #limits .bar i { display: block; height: 100%; background: var(--st-busy); }
+  #limits .bar.warn i { background: var(--st-idle); }
+  #limits .bar.hot i { background: var(--st-waiting); }
+  #limits .stale { color: var(--text-muted); font-style: italic; }
+  #limits .setup { color: var(--text-muted); }
+  #limits .setup code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: var(--wash); padding: 0 4px; border-radius: 3px; }
+  #launch { display: none; flex-direction: column; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--grid); }
+  #launch.on { display: flex; }
+  #launch label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-muted); }
+  #launch label.inline { flex: 1; }
+  #launch label.chk { flex-direction: row; align-items: center; gap: 6px; flex: 1.4; }
+  #launch label.chk input { width: auto; }
+  #launch input, #launch textarea { width: 100%; font-size: 13px; }
+  #launch textarea { resize: vertical; }
+  #launch .lrow { display: flex; gap: 10px; align-items: flex-end; }
+  #launch .crow { display: flex; gap: 8px; align-items: center; }
+  #launch .hint { font-size: 11.5px; color: var(--text-muted); flex: 1; }
+  #toast {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: var(--text-primary); color: var(--page); padding: 8px 14px; border-radius: 8px;
+    font-size: 12.5px; opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 50; max-width: 80vw;
+  }
+  #toast.on { opacity: 1; }
+  #toast.err { background: var(--st-waiting); color: #fff; }
+
+  /* manual lanes: drag & drop */
+  .col.lane .cards { min-height: 60px; border-radius: 10px; transition: background 0.12s; }
+  .col.lane .cards.dropping { background: var(--select); outline: 1px dashed var(--accent); }
+  .card.draggable { cursor: grab; }
+  .card.dragging { opacity: 0.4; }
+  .drop-ph { height: 3px; border-radius: 2px; background: var(--accent); margin: -4px 0 1px; }
+  .col.lane h2 .lname { cursor: text; border-radius: 4px; padding: 0 3px; }
+  .col.lane h2 .lname:hover { background: var(--wash); }
+  .col.lane h2 input { font: inherit; font-weight: 650; text-transform: none; letter-spacing: normal; padding: 0 4px; width: 140px; }
+  .col.lane h2 .ldel { margin-left: auto; background: none; border: none; color: var(--text-muted); padding: 0 4px; font-size: 13px; }
+  .col.lane h2 .ldel:hover { color: var(--st-waiting); }
+  .col.lane h2 .ldel.confirm { color: #fff; background: var(--st-waiting); border-radius: 4px; }
+  #addLane { align-self: flex-start; flex: none; margin-top: 22px; white-space: nowrap; }
+  #dndHint { font-size: 11.5px; color: var(--text-muted); padding: 6px 16px 0; display: none; }
+  #dndHint.on { display: block; }
+  @media (max-width: 1500px) { #accounts { display: none; } }
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    #main { flex-direction: column; }
+    #board { flex-direction: column; }
+    .col { max-width: none; min-width: 0; }
+    #drawer { width: auto; border-left: none; border-top: 1px solid var(--grid); position: fixed; left: 0; right: 0; bottom: 0; top: 30%; z-index: 40; box-shadow: 0 -10px 30px rgba(0,0,0,0.25); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>agentfdr <span>board</span></h1>
+  <span class="live" id="live"><span class="dot"></span><span id="liveText">…</span></span>
+  <span class="counts" id="counts"></span>
+  <span class="muted" id="accounts" style="font-size:11.5px;max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title=""></span>
+  <span class="spacer"></span>
+  <select id="acctFilter" title="Account">
+    <option value="">all accounts</option>
+    <option value="cli">CLI</option>
+    <option value="desktop">Desktop</option>
+  </select>
+  <input id="projectFilter" type="search" placeholder="filter project…">
+  <select id="groupBy" title="Group by">
+    <option value="state">by state</option>
+    <option value="project">by project</option>
+    <option value="account">by account</option>
+    <option value="manual">manual lanes</option>
+  </select>
+  <a id="viewerLink" href="/" target="_blank" title="Timeline viewer" style="font-size:12px;text-decoration:none">timeline ↗</a>
+  <button id="newSession" class="primary" title=""></button>
+  <button id="langToggle" title="Language">日本語</button>
+  <button id="themeToggle" title="Theme">◐</button>
+</header>
+<div id="limits"></div>
+<div id="warn"></div>
+<div id="dndHint"></div>
+<div id="main">
+  <div id="boardWrap"><div id="board"></div></div>
+  <aside id="drawer">
+    <div id="drawerHead"><h3 id="drawerTitle"></h3><button id="drawerClose" title="Close (Esc)">✕</button></div>
+    <div id="drawerBody"></div>
+    <form id="launch" autocomplete="off">
+      <label><span id="lDirLabel"></span><input id="lDir" list="dirList" required placeholder="/path/to/repo"><datalist id="dirList"></datalist></label>
+      <label><span id="lPromptLabel"></span><textarea id="lPrompt" rows="5"></textarea></label>
+      <div class="lrow">
+        <label class="inline"><span id="lModelLabel"></span><input id="lModel" list="modelList" placeholder="default"><datalist id="modelList"></datalist></label>
+        <label class="inline chk"><input id="lResume" type="checkbox"><span id="lResumeLabel"></span></label>
+      </div>
+      <div class="crow">
+        <button id="lGo" class="primary" type="submit"></button>
+        <span class="hint" id="lHint"></span>
+      </div>
+    </form>
+    <div id="composer">
+      <textarea id="composeText" placeholder=""></textarea>
+      <div class="crow">
+        <button id="composeSend" class="primary"></button>
+        <span class="hint" id="composeHint"></span>
+      </div>
+    </div>
+  </aside>
+</div>
+<div id="toast"></div>
+
+<script>
+const I18N = {
+  en: {
+    needsYou: 'Needs you', working: 'Working', idle: 'Idle', ended: 'Recently ended', unknown: 'Unknown',
+    waiting: 'waiting', busy: 'busy', idleS: 'idle', endedS: 'ended', unknownS: 'unknown',
+    cli: 'CLI', desktop: 'Desktop', bg: 'bg', worktree: 'worktree',
+    task: 'task', now: 'now', last: 'last',
+    turns: 'turns', tools: 'tools', errs: 'errors', ctx: 'ctx', est: 'est.',
+    files: 'files', noTask: '(no prompt yet)', noText: '(nothing said yet)',
+    sharesRepo: (n) => `shares repo with ${n} other live session${n === 1 ? '' : 's'}`,
+    sameFiles: 'both editing:',
+    open: 'timeline', steer: 'send…', approve: 'approve', deny: 'deny', stop: 'stop',
+    confirm: 'confirm?', readonly: 'read-only (no tmux pane)',
+    empty: 'no sessions', updated: (s) => `updated ${s}s ago`, stale: 'connection lost — retrying',
+    warnHead: (n) => `${n} repositor${n === 1 ? 'y' : 'ies'} with more than one live session`,
+    warnFiles: 'same file open in several sessions:',
+    composePh: 'Type an instruction for this session… (⌘/Ctrl+Enter to send)',
+    composeHint: 'Typed into the tmux pane and submitted, exactly as if you were at the keyboard. If the session is busy, Claude Code queues it.',
+    composeRo: 'This session has no tmux pane agentfdr can reach (Desktop app / background job) — read-only.',
+    send: 'Send', sent: 'sent', sentKey: (k) => `${k} sent`, sending: 'sending…',
+    prompt: 'Current task', reply: 'Latest from the agent', recent: 'Recent turns', details: 'Session',
+    dProject: 'project', dBranch: 'branch', dCwd: 'cwd', dModel: 'model', dPid: 'pid', dSession: 'session', dStarted: 'started', dTmux: 'tmux', dVersion: 'version', dState: 'state', dActivity: 'last activity',
+    inWindowNote: 'stats cover the last part of the transcript only (≥)',
+    pending: 'running', ago: (s) => `${s} ago`, forS: (s) => `for ${s}`,
+    hintDerived: 'inferred from the transcript (this session reports no status)',
+    parked: 'parked', parkedHint: 'Listed in the Claude desktop app, but no process is running for it right now (the app restarts it on your next message).',
+    acctCli: 'CLI', acctDesktop: 'Desktop', otherAccount: 'other account', unknownAccount: 'account unknown',
+    unsorted: 'Unsorted', addLane: '+ lane', laneDefault: 'Lane', deleteLane: 'delete lane', renameHint: 'click to rename',
+    dndHint: 'Drag cards between lanes to triage them your way. Lanes and placement are saved in this browser; the state chip still tells you what the session is doing.',
+    defaultLanes: ['Now', 'Later', 'Watching', 'Hold'],
+    newSession: '+ new session', newSessionTitle: 'Start a new Claude Code session in a tmux pane',
+    launchTitle: 'New session', lDir: 'directory', lPrompt: 'first prompt (optional — Claude Code starts with it)', lModel: 'model (optional)', lResume: 'continue the last conversation in this directory',
+    launch: 'Start', launching: 'starting…',
+    launched: (n) => `started: ${n} — the card appears in a few seconds`,
+    launchedUnregistered: (n) => `started ${n}, but it has not registered yet — a first-run dialog (workspace trust) is probably waiting in the pane: tmux attach -t ${n}`,
+    launchHint: 'Runs `claude` in a detached tmux session named like your shell wrapper does (claude-<dir>-<cksum>), so `cc` in that directory attaches to it. Only sessions started this way (or in tmux) can be steered from the board.',
+    limits5h: '5h', limits7d: '7d', limitsReset: (t) => `resets ${t}`, limitsAsOf: (t) => `as of ${t}`,
+    limitsSetup: 'Plan limits (5h / 7d) per account: pipe your status line through the tap —',
+    limitsUnknown: 'account unknown',
+    tmuxOff: 'tmux is not running — steering is disabled',
+    stopHint: 'Sends Esc: interrupts the running turn (or rejects an open dialog).',
+    sendEnter: 'Enter', sendEnterHint: 'Sends Enter to the open dialog: whatever it has highlighted (a question\'s first option, a plan approval\'s default) is chosen. Look at the pane if unsure.',
+    sendEsc: 'Esc', sendEscHint: 'Sends Esc: closes/rejects the open dialog.',
+    stateChanged: 'not sent — the session\'s state changed since this card was drawn; look again',
+    sharedPane: 'shares a pane', sharedPaneHint: 'This process (e.g. claude -p started from a session) shares the tmux pane of an interactive session — steer that session instead.',
+    approveHint: 'Sends Enter: takes the highlighted (default) choice of the open dialog.',
+    denyHint: 'Sends Esc: rejects the open dialog.',
+  },
+  ja: {
+    needsYou: '要対応', working: '作業中', idle: '待機中', ended: '最近終了', unknown: '不明',
+    waiting: '要対応', busy: '作業中', idleS: '待機中', endedS: '終了', unknownS: '不明',
+    cli: 'CLI', desktop: 'Desktop', bg: 'bg', worktree: 'worktree',
+    task: '依頼', now: '現在', last: '直近',
+    turns: 'ターン', tools: 'ツール', errs: 'エラー', ctx: 'ctx', est: '概算',
+    files: '編集', noTask: '(依頼なし)', noText: '(まだ発言なし)',
+    sharesRepo: (n) => `同じリポジトリで他に ${n} セッションが稼働中`,
+    sameFiles: '同じファイルを編集:',
+    open: 'タイムライン', steer: '指示…', approve: '承認', deny: '拒否', stop: '停止',
+    confirm: '本当に？', readonly: '閲覧のみ (tmux なし)',
+    empty: 'セッションなし', updated: (s) => `${s}秒前に更新`, stale: '接続が切れました — 再試行中',
+    warnHead: (n) => `${n} 個のリポジトリで複数セッションが同時稼働中`,
+    warnFiles: '同じファイルを複数セッションが編集:',
+    composePh: 'このセッションへの指示を入力… (⌘/Ctrl+Enter で送信)',
+    composeHint: 'tmux ペインにそのまま入力して送信します（キーボードで打つのと同じ）。作業中ならClaude Code側でキューされます。',
+    composeRo: 'このセッションは agentfdr が届く tmux ペインで動いていません（Desktopアプリ / バックグラウンド）— 閲覧のみです。',
+    send: '送信', sent: '送信しました', sentKey: (k) => `${k} を送信しました`, sending: '送信中…',
+    prompt: '現在の依頼', reply: 'エージェントの直近の発言', recent: '直近のターン', details: 'セッション',
+    dProject: 'プロジェクト', dBranch: 'ブランチ', dCwd: 'cwd', dModel: 'モデル', dPid: 'pid', dSession: 'セッション', dStarted: '開始', dTmux: 'tmux', dVersion: 'バージョン', dState: '状態', dActivity: '最終更新',
+    inWindowNote: '統計はトランスクリプト末尾の範囲のみ (≥)',
+    pending: '実行中', ago: (s) => `${s}前`, forS: (s) => `${s}経過`,
+    hintDerived: 'トランスクリプトから推定（このセッションは状態を報告しません）',
+    parked: '休止', parkedHint: 'Claude デスクトップアプリの一覧にはあるが、今はプロセスが動いていないセッション（次のメッセージでアプリが再起動します）。',
+    acctCli: 'CLI', acctDesktop: 'Desktop', otherAccount: '別アカウント', unknownAccount: 'アカウント不明',
+    unsorted: '未分類', addLane: '+ レーン', laneDefault: 'レーン', deleteLane: 'レーンを削除', renameHint: 'クリックで名前を変更',
+    dndHint: 'カードをレーン間でドラッグして自分流に仕分けできます。レーンと配置はこのブラウザに保存され、状態チップはそのまま何をしているかを示します。',
+    defaultLanes: ['今やる', '後で', '監視中', '保留'],
+    newSession: '+ 新規セッション', newSessionTitle: 'tmux ペインで新しい Claude Code セッションを起動',
+    launchTitle: '新規セッション', lDir: 'ディレクトリ', lPrompt: '最初の依頼（任意 — Claude Code がこの依頼から始めます）', lModel: 'モデル（任意）', lResume: 'このディレクトリの前回の会話を続ける',
+    launch: '起動', launching: '起動中…',
+    launched: (n) => `起動しました: ${n} — 数秒でカードが現れます`,
+    launchedUnregistered: (n) => `${n} を起動しましたがまだ登録されていません — ペイン内で初回ダイアログ（フォルダの信頼確認）が待っている可能性があります: tmux attach -t ${n}`,
+    launchHint: 'シェルラッパーと同じ命名（claude-<dir>-<cksum>）の tmux セッションを切り離しで作って `claude` を起動します。そのディレクトリで `cc` するとそのセッションに接続されます。ボードから指示できるのは、この方法（または tmux 上）で起動したセッションだけです。',
+    limits5h: '5h', limits7d: '7d', limitsReset: (t) => `${t} にリセット`, limitsAsOf: (t) => `${t} 時点`,
+    limitsSetup: 'アカウントごとのプラン上限（5h / 7d）を出すには、statusline を tap 経由にします —',
+    limitsUnknown: 'アカウント不明',
+    tmuxOff: 'tmux が起動していないため指示は送れません',
+    stopHint: 'Esc を送ります: 実行中のターンを中断（ダイアログが開いていれば拒否）。',
+    sendEnter: 'Enter', sendEnterHint: '開いているダイアログに Enter を送ります: 今ハイライトされている選択肢（質問なら先頭、プラン承認なら既定）が選ばれます。不安ならペインを見てから。',
+    sendEsc: 'Esc', sendEscHint: 'Esc を送ります: 開いているダイアログを閉じる/拒否します。',
+    stateChanged: '送信していません — このカードを描いた後にセッションの状態が変わりました。もう一度確認してください',
+    sharedPane: 'ペイン共有', sharedPaneHint: 'このプロセス（セッション内から起動した claude -p 等）は対話セッションの tmux ペインを共有しています — 指示はそのセッションの方へ。',
+    approveHint: 'Enter を送ります: 開いているダイアログのデフォルト選択肢を選びます。',
+    denyHint: 'Esc を送ります: 開いているダイアログを拒否します。',
+  },
+};
+let LANG = localStorage.getItem('agentfdr.lang') || (navigator.language?.startsWith('ja') ? 'ja' : 'en');
+const t = () => I18N[LANG];
+const $ = (id) => document.getElementById(id);
+
+const savedTheme = localStorage.getItem('agentfdr.theme');
+if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+// Deep-linkable: ?theme=dark&uilang=en&group=project&acct=cli
+const qp = new URLSearchParams(location.search);
+if (qp.get('theme') === 'dark' || qp.get('theme') === 'light') document.documentElement.dataset.theme = qp.get('theme');
+if (qp.get('uilang') === 'en' || qp.get('uilang') === 'ja') LANG = qp.get('uilang');
+$('themeToggle').addEventListener('click', () => {
+  const root = document.documentElement;
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const cur = root.dataset.theme || (dark ? 'dark' : 'light');
+  root.dataset.theme = cur === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('agentfdr.theme', root.dataset.theme);
+});
+$('langToggle').addEventListener('click', () => {
+  LANG = LANG === 'ja' ? 'en' : 'ja';
+  localStorage.setItem('agentfdr.lang', LANG);
+  applyLang();
+  render();
+});
+function applyLang() {
+  document.documentElement.lang = LANG;
+  $('langToggle').textContent = LANG === 'ja' ? 'EN' : '日本語';
+  const opts = $('groupBy').options;
+  opts[0].text = LANG === 'ja' ? '状態別' : 'by state';
+  opts[1].text = LANG === 'ja' ? 'プロジェクト別' : 'by project';
+  opts[2].text = LANG === 'ja' ? 'アカウント別' : 'by account';
+  opts[3].text = LANG === 'ja' ? '手動レーン' : 'manual lanes';
+  $('acctFilter').options[0].text = LANG === 'ja' ? '全アカウント' : 'all accounts';
+  $('projectFilter').placeholder = LANG === 'ja' ? 'プロジェクトで絞る…' : 'filter project…';
+  $('composeText').placeholder = t().composePh;
+  $('composeSend').textContent = t().send;
+  $('newSession').textContent = t().newSession;
+  $('newSession').title = t().newSessionTitle;
+  $('lDirLabel').textContent = t().lDir;
+  $('lPromptLabel').textContent = t().lPrompt;
+  $('lModelLabel').textContent = t().lModel;
+  $('lResumeLabel').textContent = t().lResume;
+  $('lGo').textContent = t().launch;
+  $('lHint').textContent = t().launchHint;
+}
+
+// --- state --------------------------------------------------------------------
+let board = null;
+let lastFetchAt = 0;
+let fetchFailed = false;
+let selectedKey = null;
+let dragKey = null; // lane key of the card being dragged (manual lanes)
+let dropPh = null;  // insertion marker while dragging
+const confirmTimers = new Map(); // `${pid}:${action}` -> timeout id
+const armed = new Set();
+
+for (const id of ['acctFilter', 'groupBy']) $(id).addEventListener('change', () => { persist(); render(); });
+$('projectFilter').addEventListener('input', () => { persist(); render(); });
+function persist() {
+  localStorage.setItem('agentfdr.board.acct', $('acctFilter').value);
+  localStorage.setItem('agentfdr.board.group', $('groupBy').value);
+}
+$('acctFilter').value = qp.get('acct') ?? localStorage.getItem('agentfdr.board.acct') ?? '';
+$('groupBy').value = qp.get('group') ?? localStorage.getItem('agentfdr.board.group') ?? 'state';
+
+// --- polling ------------------------------------------------------------------
+async function poll() {
+  try {
+    const res = await fetch('/api/board');
+    if (!res.ok) throw new Error(res.statusText);
+    board = await res.json();
+    lastFetchAt = Date.now();
+    fetchFailed = false;
+  } catch {
+    fetchFailed = true;
+  }
+  // A drag or a lane rename in progress must not be yanked out from under
+  // the pointer; the next poll (or the drop) redraws.
+  if (dragKey || document.querySelector('.lname input')) return;
+  render();
+}
+setInterval(poll, 3000);
+setInterval(tickLive, 1000);
+poll();
+
+function tickLive() {
+  const el = $('live');
+  el.classList.toggle('stale', fetchFailed);
+  $('liveText').textContent = fetchFailed ? t().stale : t().updated(Math.max(0, Math.round((Date.now() - lastFetchAt) / 1000)));
+}
+
+// --- formatting -----------------------------------------------------------------
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function fmtDur(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h${m % 60 ? ` ${m % 60}m` : ''}`;
+  return `${Math.floor(h / 24)}d`;
+}
+function fmtK(n) {
+  if (n == null) return '—';
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k`;
+  return String(n);
+}
+function fmtUsd(v) { return v == null ? '—' : v >= 10 ? `$${v.toFixed(0)}` : `$${v.toFixed(2)}`; }
+function fmtTime(ms) { return ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'; }
+// Absolute local date+time, YYYY-MM-DD HH:MM: relative ages ("4d") say how
+// stale a card is; the date says which day the work belongs to.
+function fmtDate(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function shortModel(m) { return (m ?? '').replace(/^claude-/, '').replace(/-\d{8}$/, ''); }
+function baseName(p) { return String(p).split('/').filter(Boolean).pop() ?? p; }
+function acctTitle(s) {
+  if (s.accountEmail) return s.accountEmail;
+  if (s.account === 'desktop' && s.accountUuid) return `${t().otherAccount} (${s.accountUuid.slice(0, 8)}…)`;
+  return t().unknownAccount;
+}
+// Desktop cards from an account other than the CLI's get a visible marker; the
+// user's whole reason for the account badge is telling the two apart.
+function acctSuffix(s) {
+  if (s.account !== 'desktop' || s.accountEmail || !board?.accounts?.cli?.accountUuid) return '';
+  return ` · ${t().otherAccount}`;
+}
+function renderAccounts() {
+  const a = board?.accounts;
+  const el = $('accounts');
+  if (!a) { el.textContent = ''; return; }
+  const parts = [];
+  if (a.cli?.email) parts.push(`${t().acctCli}: ${a.cli.email}`);
+  for (const d of a.desktop ?? []) parts.push(`${t().acctDesktop}: ${d.email ?? `${t().otherAccount} ${d.accountUuid.slice(0, 8)}…`} (${d.sessions})`);
+  el.textContent = parts.join(' · ');
+  el.title = parts.join('\n');
+}
+const STATE_RANK = { waiting: 0, busy: 1, idle: 2, unknown: 3 };
+function stateRank(st) { return STATE_RANK[st] ?? 4; }
+// Plan usage per account, as Claude Code reports it to the status line and the
+// tap records it. Absent until the tap is wired in — say how, once, quietly.
+function renderLimits() {
+  const el = $('limits');
+  const rl = board?.rateLimits ?? {};
+  const entries = Object.values(rl);
+  el.classList.add('on');
+  if (!entries.length) {
+    el.innerHTML = `<span class="setup">${esc(t().limitsSetup)} <code>agentfdr statusline-tap</code> <a href="https://github.com/kamihork/agentfdr#the-board" target="_blank">README ↗</a></span>`;
+    return;
+  }
+  const now = board.generatedAt;
+  const bar = (w) => {
+    if (!w) return '<span class="muted">—</span>';
+    const cls = w.pct >= 80 ? ' hot' : w.pct >= 50 ? ' warn' : '';
+    const reset = w.resetsAt ? ` · ${t().limitsReset(fmtDate(w.resetsAt).slice(w.resetsAt - now < 86400000 ? 11 : 5))}` : '';
+    return `<span class="bar${cls}" title="${esc(reset.slice(3))}"><i style="width:${Math.max(0, Math.min(100, Number(w.pct) || 0))}%"></i></span> <b>${esc(w.pct)}%</b><span class="muted">${esc(reset)}</span>`;
+  };
+  el.innerHTML = entries.map((a) => {
+    const stale = now - (a.at ?? 0) > 30 * 60_000;
+    return `<span class="lim" title="${esc(a.accountUuid ?? '')}">
+      <span class="who">${esc(a.email ?? t().limitsUnknown)}</span>
+      <span>${t().limits5h} ${bar(a.fiveHour)}</span>
+      <span>${t().limits7d} ${bar(a.sevenDay)}</span>
+      ${stale ? `<span class="stale">${esc(t().limitsAsOf(fmtDate(a.at)))}</span>` : ''}
+    </span>`;
+  }).join('');
+}
+function stateLabel(st) { return { waiting: t().waiting, busy: t().busy, idle: t().idleS, unknown: t().unknownS, ended: t().endedS }[st] ?? st; }
+// waitingFor comes from Claude Code's registry in English; 'possibly a dialog' is agentfdr's own inference.
+const WAITING_JA = { 'permission prompt': '許可待ち', 'input needed': '入力待ち', 'dialog open': 'ダイアログ表示中', 'sandbox request': 'サンドボックス要求', 'worker request': 'ワーカー要求', 'possibly a dialog': 'ダイアログの可能性' };
+function waitingLabel(w) { return LANG === 'ja' ? (WAITING_JA[w] ?? w) : w; }
+
+// --- render --------------------------------------------------------------------
+function visibleSessions() {
+  if (!board) return [];
+  const acct = $('acctFilter').value;
+  const q = $('projectFilter').value.trim().toLowerCase();
+  return board.sessions.filter((s) =>
+    (!acct || s.account === acct) &&
+    (!q || (s.project ?? '').toLowerCase().includes(q) || (s.cwd ?? '').toLowerCase().includes(q) || (s.name ?? '').toLowerCase().includes(q))
+  );
+}
+
+function render() {
+  if (!board) { $('board').innerHTML = `<div class="col"><div class="empty">…</div></div>`; return; }
+  const sessions = visibleSessions();
+  renderCounts(board.sessions);
+  renderAccounts();
+  renderLimits();
+  renderWarn();
+  const groupBy = $('groupBy').value;
+  const cols = [];
+  if (groupBy === 'state') {
+    for (const [st, label, color] of [['waiting', t().needsYou, 'var(--st-waiting)'], ['busy', t().working, 'var(--st-busy)'], ['idle', t().idle, 'var(--st-idle)']]) {
+      const cards = sessions.filter((s) => s.state === st);
+      cols.push({ key: st, label, color, cards, wide: st === 'idle' && cards.length > 3 });
+    }
+    const unk = sessions.filter((s) => s.state === 'unknown');
+    if (unk.length) cols.push({ key: 'unknown', label: t().unknown, color: 'var(--st-unknown)', cards: unk });
+    const q = $('projectFilter').value.trim().toLowerCase();
+    const recent = (board.recent ?? []).filter((r) => !q || (r.project ?? '').toLowerCase().includes(q));
+    if (recent.length && !$('acctFilter').value) cols.push({ key: 'ended', label: t().ended, color: 'var(--st-ended)', ended: recent, narrow: true });
+  } else if (groupBy === 'manual') {
+    const st = laneState();
+    const byLane = new Map([['unsorted', []], ...st.lanes.map((l) => [l.id, []])]);
+    for (const s of sessions) {
+      const p = st.placement[laneKey(s)];
+      byLane.get(p && byLane.has(p.lane) ? p.lane : 'unsorted').push(s);
+    }
+    const order = (s) => st.placement[laneKey(s)]?.order ?? Infinity;
+    for (const cards of byLane.values()) cards.sort((a, b) => order(a) - order(b) || stateRank(a.state) - stateRank(b.state));
+    const unsorted = byLane.get('unsorted');
+    cols.push({ key: 'unsorted', label: t().unsorted, color: null, cards: unsorted, lane: 'unsorted', fixed: true, wide: unsorted.length > 3 });
+    for (const l of st.lanes) cols.push({ key: l.id, label: l.name, color: null, cards: byLane.get(l.id), lane: l.id });
+  } else {
+    const key = groupBy === 'project' ? (s) => s.repoRoot ? baseName(s.repoRoot) : (s.project ?? '?') : (s) => s.account;
+    const map = new Map();
+    for (const s of sessions) { const k = key(s); if (!map.has(k)) map.set(k, []); map.get(k).push(s); }
+    for (const [k, cards] of [...map].sort((a, b) => a[0].localeCompare(b[0]))) {
+      cols.push({ key: k, label: groupBy === 'account' ? (k === 'desktop' ? t().desktop : t().cli) : k, color: null, cards });
+    }
+  }
+  const manual = groupBy === 'manual';
+  $('dndHint').textContent = t().dndHint;
+  $('dndHint').classList.toggle('on', manual);
+  const laneHead = (c) => c.fixed
+    ? `${esc(c.label)}`
+    : `<span class="lname" data-lane="${esc(c.lane)}" title="${esc(t().renameHint)}">${esc(c.label)}</span>`;
+  const html = cols.map((c) => `
+    <section class="col${c.narrow ? ' narrow' : ''}${c.wide ? ' wide' : ''}${c.lane ? ' lane' : ''}"${c.lane ? ` data-lane="${esc(c.lane)}"` : ''}>
+      <h2>${c.color ? `<i style="background:${c.color}"></i>` : ''}${c.lane ? laneHead(c) : esc(c.label)} <span class="n">${(c.cards ?? c.ended).length}</span>${c.lane && !c.fixed ? `<button class="ldel${armed.has('lane:' + c.lane) ? ' confirm' : ''}" data-dellane="${esc(c.lane)}" title="${esc(t().deleteLane)}">${armed.has('lane:' + c.lane) ? t().confirm : '×'}</button>` : ''}</h2>
+      <div class="cards">${c.cards ? (c.cards.length ? c.cards.map((s) => cardHtml(s, manual)).join('') : `<div class="empty">${t().empty}</div>`) : c.ended.map(endedHtml).join('')}</div>
+    </section>`).join('') + (manual ? `<button id="addLane">${t().addLane}</button>` : '');
+  $('board').innerHTML = html || `<div class="col"><div class="empty">${t().empty}</div></div>`;
+  renderDrawer();
+}
+
+// --- manual lanes: user-defined columns, drag & drop, saved in this browser ---
+const LANES_KEY = 'agentfdr.board.lanes';
+function laneKey(s) { return s.sessionId ?? s.key; } // pids change across restarts; session ids don't
+function laneState() {
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem(LANES_KEY) || 'null'); } catch { st = null; }
+  if (!st || !Array.isArray(st.lanes) || typeof st.placement !== 'object') {
+    st = { lanes: t().defaultLanes.map((name, i) => ({ id: 'l' + (i + 1), name })), placement: {} };
+    saveLanes(st);
+  }
+  return st;
+}
+function saveLanes(st) {
+  // Placements outlive their sessions for a while (a restarted session keeps
+  // its lane), then get pruned so the store does not grow forever.
+  const cutoff = Date.now() - 30 * 24 * 3600_000;
+  for (const [k, p] of Object.entries(st.placement)) if ((p.at ?? 0) < cutoff) delete st.placement[k];
+  localStorage.setItem(LANES_KEY, JSON.stringify(st));
+}
+/** Put a card into `lane` at position `index` (among that lane's current cards) and renumber. */
+function placeCard(key, lane, index) {
+  const st = laneState();
+  const laneKeys = [...document.querySelectorAll(`.col.lane[data-lane="${CSS.escape(lane)}"] .card[data-key]`)]
+    .map((el) => el.dataset.lanekey).filter((k) => k && k !== key);
+  laneKeys.splice(Math.max(0, Math.min(index, laneKeys.length)), 0, key);
+  laneKeys.forEach((k, i) => { st.placement[k] = { lane, order: i, at: Date.now() }; });
+  saveLanes(st);
+}
+$('board').addEventListener('dragstart', (ev) => {
+  const card = ev.target.closest('.card.draggable');
+  if (!card) return;
+  dragKey = card.dataset.lanekey;
+  ev.dataTransfer.effectAllowed = 'move';
+  ev.dataTransfer.setData('text/plain', dragKey);
+  requestAnimationFrame(() => card.classList.add('dragging'));
+});
+$('board').addEventListener('dragover', (ev) => {
+  const zone = ev.target.closest('.col.lane .cards');
+  if (!zone || !dragKey) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.cards.dropping').forEach((z) => z !== zone && z.classList.remove('dropping'));
+  zone.classList.add('dropping');
+  // Insertion point: before the first card whose vertical middle is below the pointer.
+  const cards = [...zone.querySelectorAll('.card[data-key]:not(.dragging)')];
+  const next = cards.find((c) => ev.clientY < c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2);
+  if (!dropPh) { dropPh = document.createElement('div'); dropPh.className = 'drop-ph'; }
+  if (next) zone.insertBefore(dropPh, next); else zone.appendChild(dropPh);
+});
+$('board').addEventListener('dragleave', (ev) => {
+  const zone = ev.target.closest('.col.lane .cards');
+  if (zone && !zone.contains(ev.relatedTarget)) zone.classList.remove('dropping');
+});
+$('board').addEventListener('drop', (ev) => {
+  const zone = ev.target.closest('.col.lane .cards');
+  if (!zone || !dragKey) return;
+  ev.preventDefault();
+  const lane = zone.closest('.col.lane').dataset.lane;
+  const cards = [...zone.querySelectorAll('.card[data-key]:not(.dragging)')];
+  const index = dropPh && dropPh.parentNode === zone ? cards.findIndex((c) => c.compareDocumentPosition(dropPh) & Node.DOCUMENT_POSITION_PRECEDING) : cards.length;
+  placeCard(dragKey, lane, index === -1 ? cards.length : index);
+  endDrag();
+  render();
+});
+$('board').addEventListener('dragend', () => { endDrag(); render(); });
+function endDrag() {
+  dragKey = null;
+  dropPh?.remove();
+  document.querySelectorAll('.cards.dropping').forEach((z) => z.classList.remove('dropping'));
+  document.querySelectorAll('.card.dragging').forEach((c) => c.classList.remove('dragging'));
+}
+// lane management: add, rename (click the name), delete (two-click)
+$('board').addEventListener('click', (ev) => {
+  if (ev.target.id === 'addLane') {
+    const st = laneState();
+    const id = 'l' + (Math.max(0, ...st.lanes.map((l) => Number(l.id.slice(1)) || 0)) + 1);
+    st.lanes.push({ id, name: `${t().laneDefault} ${st.lanes.length + 1}` });
+    saveLanes(st);
+    render();
+    return;
+  }
+  const del = ev.target.closest('button[data-dellane]');
+  if (del) {
+    const lane = del.dataset.dellane;
+    const key = 'lane:' + lane;
+    if (armed.has(key)) {
+      armed.delete(key);
+      clearTimeout(confirmTimers.get(key));
+      const st = laneState();
+      st.lanes = st.lanes.filter((l) => l.id !== lane);
+      for (const [k, p] of Object.entries(st.placement)) if (p.lane === lane) delete st.placement[k];
+      saveLanes(st);
+    } else {
+      armed.add(key);
+      confirmTimers.set(key, setTimeout(() => { armed.delete(key); render(); }, 4000));
+    }
+    render();
+    return;
+  }
+  const name = ev.target.closest('.lname');
+  if (name && !name.querySelector('input')) {
+    const lane = name.dataset.lane;
+    const input = document.createElement('input');
+    input.value = name.textContent;
+    name.textContent = '';
+    name.appendChild(input);
+    input.focus();
+    input.select();
+    const commit = () => {
+      const st = laneState();
+      const l = st.lanes.find((x) => x.id === lane);
+      if (l && input.value.trim()) l.name = input.value.trim().slice(0, 40);
+      saveLanes(st);
+      render();
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') render(); });
+    input.addEventListener('blur', commit);
+  }
+});
+
+function renderCounts(all) {
+  const n = (st) => all.filter((s) => s.state === st).length;
+  $('counts').innerHTML = [
+    ['waiting', n('waiting'), 'var(--st-waiting)'],
+    ['busy', n('busy'), 'var(--st-busy)'],
+    ['idle', n('idle'), 'var(--st-idle)'],
+  ].map(([st, c, col]) => `<span class="count"><i style="background:${col}"></i>${c} ${esc(stateLabel(st))}</span>`).join('');
+}
+
+function renderWarn() {
+  const el = $('warn');
+  const ov = (board.overlaps ?? []).filter((o) => o.pids.length > 1);
+  if (!ov.length) { el.classList.remove('on'); el.innerHTML = ''; return; }
+  const byPid = new Map(board.sessions.map((s) => [s.pid, s]));
+  const parts = ov.map((o) => {
+    const names = o.pids.map((p) => byPid.get(p)?.name ?? p).join(', ');
+    const files = o.files.length ? ` — <span class="files">${t().warnFiles} ${o.files.map((f) => esc(baseName(f.file))).join(', ')}</span>` : '';
+    return `<b>${esc(baseName(o.repo))}</b> (${esc(names)})${files}`;
+  });
+  el.innerHTML = `⚠ ${t().warnHead(ov.length)}: ${parts.join(' · ')}`;
+  el.classList.add('on');
+}
+
+function overlapFor(s) {
+  return (board.overlaps ?? []).find((o) => o.pids.includes(s.pid)) ?? null;
+}
+
+function cardHtml(s, draggable = false) {
+  const now = board.generatedAt;
+  const st = s.state;
+  const since = s.stateSince ? fmtDur(now - s.stateSince) : null;
+  const ov = overlapFor(s);
+  const w = s.window;
+  const files = w.files.slice(-4).map(baseName);
+  const flags = w.flags.slice(0, 4);
+  const nowLine = s.currentTool
+    ? `<span class="tool">${esc(s.currentTool.name)}</span> ${esc(s.currentTool.summary ?? '')}${s.currentTool.since ? ` <span class="muted">(${fmtDur(now - s.currentTool.since)})</span>` : ''}`
+    : (s.lastText ? esc(s.lastText) : `<span class="muted">${t().noText}</span>`);
+  const nowKey = s.currentTool ? t().now : t().last;
+  const cur = (s.state !== 'idle' && s.state !== 'ended');
+  const canSteer = s.controllable;
+  const btn = (act, cls, label, hint) => {
+    const key = `${s.pid}:${act}`;
+    const isArmed = armed.has(key);
+    return `<button class="${isArmed ? 'confirm' : cls}" data-act="${act}" data-pid="${s.pid}" title="${esc(hint)}">${isArmed ? t().confirm : label}</button>`;
+  };
+  // "approve"/"deny" only mean something for a permission prompt (Enter =
+  // the default "Yes", Esc = no). Other dialogs (questions, plan approval)
+  // have their own defaults, so the buttons say what they literally send.
+  const permission = st === 'waiting' && !s.stateDerived && s.waitingFor === 'permission prompt';
+  const otherDialog = st === 'waiting' && !s.stateDerived && !permission;
+  return `
+  <article class="card st-${st}${s.key === selectedKey ? ' selected' : ''}${draggable ? ' draggable' : ''}" data-key="${esc(s.key)}" data-lanekey="${esc(laneKey(s))}"${draggable ? ' draggable="true"' : ''}>
+    <div class="row between">
+      <span class="row">
+        <span class="chip state${s.stateDerived ? ' derived' : ''}${s.parked ? ' derived' : ''}" title="${s.parked ? esc(t().parkedHint) : s.stateDerived ? esc(t().hintDerived) : ''}">${esc(stateLabel(st))}${s.waitingFor ? ` · ${esc(waitingLabel(s.waitingFor))}` : ''}${s.parked ? ` · ${t().parked}` : ''}</span>
+        ${since ? `<span class="since">${esc(t().forS(since))}</span>` : ''}
+      </span>
+      <span class="row">
+        ${s.startedAt ? `<span class="since" title="${esc(t().dStarted)}">${fmtDate(s.startedAt)}</span>` : ''}
+        <span class="chip acct ${s.account}" title="${esc(acctTitle(s))}">${s.account === 'desktop' ? t().desktop : t().cli}${acctSuffix(s)}</span>
+        ${s.kind === 'bg' ? `<span class="chip kind">${t().bg}</span>` : ''}
+        ${s.entrypoint !== 'cli' && s.entrypoint !== 'claude-desktop' ? `<span class="chip kind" title="${esc(s.entrypoint)}">${esc(s.entrypoint.replace(/-cli$/, ''))}</span>` : ''}
+      </span>
+    </div>
+    <div class="proj" title="${esc(s.cwd ?? '')}"><b>${esc(s.project ?? '?')}</b>${s.worktreeOf ? ` <span class="muted">(${t().worktree} of ${esc(baseName(s.worktreeOf))})</span>` : ''}${s.gitBranch ? ` <span class="muted">· ${esc(s.gitBranch)}</span>` : ''}${s.model ? ` <span class="muted">· ${esc(shortModel(s.model))}</span>` : ''}</div>
+    <div class="title">${esc(s.title ?? s.name ?? s.sessionId ?? '')}</div>
+    <div class="kv">
+      <span class="k">${t().task}</span><span class="v">${s.prompt ? esc(s.prompt.text) : `<span class="muted">${t().noTask}</span>`}${s.prompt?.at ? ` <span class="muted">(${fmtDur(now - s.prompt.at)})</span>` : ''}</span>
+      <span class="k">${nowKey}</span><span class="v${cur ? ' now' : ''}">${nowLine}</span>
+    </div>
+    <div class="stats">
+      <span title="${w.truncated ? esc(t().inWindowNote) : ''}"><b>${w.truncated ? '≥' : ''}${w.turns}</b> ${t().turns}</span>
+      <span><b>${w.toolCalls}</b> ${t().tools}</span>
+      ${w.toolErrors ? `<span class="err"><b>${w.toolErrors}</b> ${t().errs}</span>` : ''}
+      <span>${t().ctx} <b>${fmtK(w.contextTokens)}</b></span>
+      ${w.estUsd != null && w.estUsd > 0 ? `<span>${t().est} <b>${fmtUsd(w.estUsd)}</b></span>` : ''}
+    </div>
+    ${files.length ? `<div class="files" title="${esc(w.files.join('\n'))}">${t().files}: ${files.map((f) => `<span>${esc(f)}</span>`).join(' ')}${w.files.length > 4 ? ` +${w.files.length - 4}` : ''}</div>` : ''}
+    ${ov ? `<div class="overlap">⚠ ${t().sharesRepo(ov.pids.length - 1)}${ov.files.filter((f) => f.pids.includes(s.pid)).length ? ` · ${t().sameFiles} <span class="f">${ov.files.filter((f) => f.pids.includes(s.pid)).map((f) => esc(baseName(f.file))).join(', ')}</span>` : ''}</div>` : ''}
+    ${flags.length ? `<div class="row">${flags.map((f) => `<span class="chip flag ${esc(f.severity)}" title="${esc(f.detail ?? '')}">${esc(f.title ?? f.type)}</span>`).join('')}</div>` : ''}
+    <div class="actions">
+      ${s.transcript ? `<a href="/?live=1&uilang=${LANG}#${encodeURIComponent(s.transcript.id)}" target="_blank" data-stop>${t().open} ↗</a>` : ''}
+      ${canSteer ? `<button data-act="steer" data-pid="${s.pid}">${t().steer}</button>` : `<span class="ro" title="${s.sharedPane ? esc(t().sharedPaneHint) : ''}">${s.sharedPane ? t().sharedPane : t().readonly}</span>`}
+      ${canSteer && permission ? btn('approve', 'ok', t().approve, t().approveHint) + btn('deny', 'danger', t().deny, t().denyHint) : ''}
+      ${canSteer && otherDialog ? btn('approve', '', t().sendEnter, t().sendEnterHint) + btn('deny', 'danger', t().sendEsc, t().sendEscHint) : ''}
+      ${canSteer && st === 'busy' ? btn('interrupt', 'danger', t().stop, t().stopHint) : ''}
+    </div>
+  </article>`;
+}
+
+function endedHtml(r) {
+  const now = board.generatedAt;
+  return `
+  <article class="card st-ended" data-ended="${esc(r.id)}">
+    <div class="row between">
+      <span class="chip state">${t().endedS}</span>
+      <span class="since">${fmtDate(r.mtimeMs)} · ${fmtDur(now - r.mtimeMs)} ${LANG === 'ja' ? '前' : 'ago'}</span>
+    </div>
+    <div class="proj"><b>${esc(r.project ?? r.slug)}</b>${r.gitBranch ? ` <span class="muted">· ${esc(r.gitBranch)}</span>` : ''}</div>
+    <div class="title">${esc(r.title ?? r.prompt ?? r.id.slice(0, 8))}</div>
+    ${r.lastText ? `<div class="kv"><span class="k">${t().last}</span><span class="v">${esc(r.lastText)}</span></div>` : ''}
+    <div class="actions"><a href="/?uilang=${LANG}#${encodeURIComponent(r.id)}" target="_blank" data-stop>${t().open} ↗</a></div>
+  </article>`;
+}
+
+// --- interactions -----------------------------------------------------------------
+$('board').addEventListener('click', (ev) => {
+  const a = ev.target.closest('a[data-stop]');
+  if (a) return; // let links be links
+  const b = ev.target.closest('button[data-act]');
+  if (b) {
+    ev.stopPropagation();
+    const pid = Number(b.dataset.pid);
+    const act = b.dataset.act;
+    if (act === 'steer') { select(String(pid)); $('composeText').focus(); return; }
+    armOrFire(pid, act);
+    return;
+  }
+  const card = ev.target.closest('.card[data-key]');
+  if (card) select(card.dataset.key);
+});
+
+let launchOpen = false;
+function select(key) {
+  selectedKey = key;
+  launchOpen = false;
+  $('drawer').classList.add('open');
+  render();
+}
+function closeDrawer() { selectedKey = null; launchOpen = false; $('drawer').classList.remove('open'); render(); }
+$('newSession').addEventListener('click', () => {
+  selectedKey = null;
+  launchOpen = true;
+  $('drawer').classList.add('open');
+  render();
+  $('lDir').focus();
+});
+$('launch').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const body = { dir: $('lDir').value.trim(), prompt: $('lPrompt').value, model: $('lModel').value.trim(), resume: $('lResume').checked };
+  if (!body.dir) return;
+  $('lGo').disabled = true;
+  toast(t().launching);
+  try {
+    const res = await fetch('/api/board/launch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || res.statusText);
+    toast(j.registered ? t().launched(j.name) : t().launchedUnregistered(j.name), !j.registered);
+    $('lPrompt').value = '';
+    if (j.registered) { launchOpen = false; if (j.pid != null) selectedKey = String(j.pid); }
+    poll();
+  } catch (err) {
+    toast(String(err.message || err), true);
+  } finally {
+    $('lGo').disabled = false;
+  }
+});
+function renderLaunch() {
+  $('launch').classList.toggle('on', launchOpen);
+  $('composer').style.display = launchOpen ? 'none' : '';
+  $('drawerBody').style.display = launchOpen ? 'none' : '';
+  if (!launchOpen) return;
+  $('drawerTitle').textContent = t().launchTitle;
+  $('drawerBody').innerHTML = '';
+  const dirs = board?.knownDirs ?? [];
+  $('dirList').innerHTML = dirs.map((d) => `<option value="${esc(d.dir)}"></option>`).join('');
+  const models = [...new Set((board?.sessions ?? []).map((s) => s.model).filter(Boolean))];
+  $('modelList').innerHTML = models.map((m) => `<option value="${esc(m)}"></option>`).join('');
+  if (!$('lDir').value && dirs[0]) $('lDir').placeholder = dirs[0].dir;
+}
+$('drawerClose').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Escape') return;
+  const a = document.activeElement;
+  if (a === $('composeText') || $('launch').contains(a)) { a.blur(); return; } // Esc leaves the field, a second Esc closes
+  closeDrawer();
+});
+
+// Approve / deny / stop are two-click: the first click arms the button (label
+// turns into "confirm?") and the second within 4 s fires. Nothing modal.
+function armOrFire(pid, act) {
+  const key = `${pid}:${act}`;
+  if (armed.has(key)) {
+    armed.delete(key);
+    clearTimeout(confirmTimers.get(key));
+    const s = board?.sessions.find((x) => x.pid === pid);
+    // Tell the server what this card showed; it refuses if the session moved on.
+    const expect = s ? { status: s.registryStatus, waitingFor: s.waitingFor, stateSince: s.stateSince } : undefined;
+    sendAction(pid, { action: act, expect });
+  } else {
+    armed.add(key);
+    confirmTimers.set(key, setTimeout(() => { armed.delete(key); render(); }, 4000));
+  }
+  render();
+}
+
+async function sendAction(pid, payload) {
+  toast(t().sending);
+  try {
+    const res = await fetch('/api/board/send', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pid, ...payload }),
+    });
+    const j = await res.json();
+    if (res.status === 409) { toast(t().stateChanged, true); poll(); return false; }
+    if (!res.ok) throw new Error(j.error || res.statusText);
+    toast(payload.action ? t().sentKey(payload.action) : t().sent);
+    return true;
+  } catch (err) {
+    toast(String(err.message || err), true);
+    return false;
+  }
+}
+
+$('composeSend').addEventListener('click', composeSend);
+$('composeText').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); composeSend(); }
+});
+async function composeSend() {
+  const text = $('composeText').value;
+  const s = board?.sessions.find((x) => x.key === selectedKey);
+  if (!s?.pid || !text.trim()) return;
+  $('composeSend').disabled = true;
+  const ok = await sendAction(s.pid, { text });
+  $('composeSend').disabled = false;
+  if (ok) $('composeText').value = '';
+}
+
+function renderDrawer() {
+  renderLaunch();
+  if (launchOpen) return;
+  const s = board?.sessions.find((x) => x.key === selectedKey);
+  if (!s) {
+    if (selectedKey != null) { selectedKey = null; $('drawer').classList.remove('open'); }
+    return;
+  }
+  const now = board.generatedAt;
+  $('drawerTitle').textContent = `${s.project ?? ''} — ${s.title ?? s.name ?? ''}${s.startedAt ? ` (${fmtDate(s.startedAt).slice(0, 10)})` : ''}`;
+  const meta = [
+    [t().dState, `${stateLabel(s.state)}${s.waitingFor ? ` · ${waitingLabel(s.waitingFor)}` : ''}${s.stateSince ? ` (${fmtDur(now - s.stateSince)})` : ''}`],
+    [t().dProject, `${s.project ?? '?'}${s.gitBranch ? ` · ${s.gitBranch}` : ''}`],
+    [t().dCwd, s.cwd ?? '—'],
+    [t().dModel, shortModel(s.model) || '—'],
+    [t().dActivity, s.lastActivityAt ? `${fmtDate(s.lastActivityAt)} (${fmtDur(now - s.lastActivityAt)})` : '—'],
+    [t().dStarted, s.startedAt ? `${fmtDate(s.startedAt)} (${fmtDur(now - s.startedAt)})` : '—'],
+    [t().dPid, `${s.pid ?? '—'} · ${s.account === 'desktop' ? t().desktop : t().cli} · ${acctTitle(s)}${s.kind === 'bg' ? ' · bg' : ''}${s.version ? ` · v${s.version}` : ''}${s.parked ? ` · ${t().parked}` : ''}`],
+    [t().dTmux, s.tmux ?? '—'],
+    [t().dSession, s.sessionId ?? '—'],
+  ];
+  const turns = s.recentTurns ?? [];
+  $('drawerBody').innerHTML = `
+    <div><h4>${t().prompt}</h4><div class="block">${s.prompt ? esc(s.prompt.text) : `<span class="muted">${t().noTask}</span>`}</div></div>
+    <div><h4>${t().reply}</h4><div class="block">${s.lastText ? esc(s.lastText) : `<span class="muted">${t().noText}</span>`}</div></div>
+    ${turns.length ? `<div><h4>${t().recent}</h4>${turns.map((tu) => `
+      <div class="turn">
+        <div class="th">${tu.at ? fmtTime(tu.at) : ''}</div>
+        ${tu.tools.map((c) => `<div class="tl${c.error ? ' err' : ''}${c.pending ? ' pending' : ''}" title="${esc(c.summary ?? '')}">${esc(c.name)} ${esc(c.summary ?? '')}${c.pending ? ` · ${t().pending}` : c.ms != null ? ` · ${fmtDur(c.ms)}` : ''}</div>`).join('')}
+        ${tu.text ? `<div class="tx">${esc(tu.text)}</div>` : ''}
+      </div>`).join('')}</div>` : ''}
+    <div><h4>${t().details}</h4><div class="meta">${meta.map(([k, v]) => `<span class="k">${esc(k)}</span><span class="mono" style="word-break:break-all">${esc(v)}</span>`).join('')}</div></div>
+    ${s.transcript ? `<div><a href="/?live=1&uilang=${LANG}#${encodeURIComponent(s.transcript.id)}" target="_blank">${t().open} ↗</a></div>` : ''}
+  `;
+  const ro = !s.controllable;
+  $('composeText').disabled = ro;
+  $('composeSend').disabled = ro;
+  $('composeHint').textContent = ro ? (board.tmux === false ? t().tmuxOff : t().composeRo) : t().composeHint;
+}
+
+let toastTimer;
+function toast(msg, isErr = false) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.toggle('err', isErr);
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), isErr ? 5000 : 1800);
+}
+
+applyLang();
+</script>
+</body>
+</html>

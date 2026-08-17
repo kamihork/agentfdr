@@ -96,6 +96,11 @@
     border-radius: 7px; padding: 5px 10px;
   }
   select, button { cursor: pointer; }
+  #boardLink {
+    font: inherit; color: var(--text-primary); text-decoration: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px;
+  }
+  #boardLink:hover { background: var(--wash); }
   #sessionSelect { flex: 1; min-width: 200px; max-width: 700px; }
   #filterwrap { position: relative; flex: none; }
   #sessionFilter { width: 150px; }
@@ -383,6 +388,7 @@
     <button id="liveToggle" aria-pressed="false"></button>
     <button id="copyReport"></button>
     <button id="cardBtn"></button>
+    <a id="boardLink" href="/board" title="Live session board"></a>
     <button id="langToggle" title="Language / 言語"></button>
     <button id="themeToggle" title="Theme">◐</button>
   </header>
@@ -529,7 +535,9 @@ const I18N = {
       byModel: 'by model', turns: (n) => `${n} turns`,
       unknown: (m) => `Cost excludes unpriced model(s): ${m}`,
     },
-    timeline: (n) => `Timeline — ${n} turns`,
+    timeline: (n, d) => `Timeline — ${d ? d + ' · ' : ''}${n} turns`,
+    boardLink: '🗂 Board',
+    boardTitle: 'Live session board — every running session, one kanban',
     turnsTable: 'Turns',
     empty: 'No sessions found under ~/.claude/projects or ~/.codex/sessions.',
     hint: 'click a turn to dissect · <kbd>←</kbd><kbd>→</kbd> move · <kbd>Esc</kbd> close',
@@ -654,7 +662,9 @@ const I18N = {
       byModel: 'モデル別', turns: (n) => `${n}ターン`,
       unknown: (m) => `料金不明のモデルはコストに含まれていません: ${m}`,
     },
-    timeline: (n) => `タイムライン — ${n}ターン`,
+    timeline: (n, d) => `タイムライン — ${d ? d + ' · ' : ''}${n}ターン`,
+    boardLink: '🗂 ボード',
+    boardTitle: 'ライブセッションボード — 稼働中の全セッションを1枚のカンバンで',
     turnsTable: 'ターン一覧',
     empty: '~/.claude/projects にも ~/.codex/sessions にもセッションが見つかりません。',
     hint: 'ターンをクリックで解剖 · <kbd>←</kbd><kbd>→</kbd> 移動 · <kbd>Esc</kbd> 閉じる',
@@ -996,6 +1006,18 @@ const fmtMs = (ms) => {
   return m < 60 ? m + 'm ' + (s % 60) + 's' : Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
 };
 const hhmm = (ts) => ts ? new Date(ts).toTimeString().slice(0, 8) : '';
+// Local calendar date, YYYY-MM-DD — sessions span days and titles alone
+// ("Fix the login bug") don't say which Tuesday.
+const ymd = (ts) => {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
+/** "2026-08-17" or "2026-08-17 → 2026-08-19" when the session crossed midnight. */
+const dateSpan = (a, b) => {
+  const x = ymd(a), y = ymd(b);
+  return x && y && x !== y ? x + ' → ' + y : x || y;
+};
 const fmtUsd = (u) => u == null ? '?' : u >= 100 ? '$' + Math.round(u) : u >= 1 ? '$' + u.toFixed(2) : '$' + u.toFixed(3);
 
 // ---------- boot ----------
@@ -1651,6 +1673,8 @@ function applyChrome() {
   $('cardBtn').title = T().cardTitle;
   $('liveToggle').textContent = T().live;
   $('liveToggle').title = T().liveTitle;
+  $('boardLink').textContent = T().boardLink;
+  $('boardLink').title = T().boardTitle;
   $('langToggle').textContent = LANG === 'ja' ? 'EN' : '日本語';
   $('empty').textContent = T().empty;
   $('hint').innerHTML = T().hint; // trusted constant, contains <kbd>
@@ -1712,6 +1736,7 @@ function renderMeta() {
   const s = MODEL.session, t = MODEL.totals;
   const el = $('meta');
   el.textContent = '';
+  document.title = 'agentfdr — ' + (s.title || (s.id || '').slice(0, 8)) + (s.startedAt ? ' (' + ymd(s.startedAt) + ')' : '');
   // Scannable chips instead of one dot-separated line. The session title is
   // deliberately absent — it's already the selected option in the header.
   const models = (s.models && s.models.length)
@@ -2029,7 +2054,7 @@ function renderTimeline() {
   }
 
   lanes.appendChild(svg);
-  $('tlTitle').textContent = L.timeline(n);
+  $('tlTitle').textContent = L.timeline(n, dateSpan(MODEL.session.startedAt, MODEL.session.endedAt));
   renderLegend();
 }
 
