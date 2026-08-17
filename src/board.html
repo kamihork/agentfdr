@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentfdr — board</title>
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface-1: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --border: rgba(11, 11, 11, 0.10);
+    --wash: rgba(11, 11, 11, 0.05);
+    --select: rgba(42, 120, 214, 0.14);
+    --accent: #2a78d6;
+    --st-waiting: #d03b3b;
+    --st-busy: #1baf7a;
+    --st-idle: #eda100;
+    --st-unknown: #898781;
+    --st-ended: #b5b3aa;
+    --status-critical: #d03b3b;
+    --status-warning: #fab219;
+    --tool-shell: #2a78d6;
+    --tool-write: #1baf7a;
+    --tool-read: #eda100;
+    --tool-agent: #4a3aa7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7;
+      --text-muted: #898781; --grid: #2c2c2a; --border: rgba(255,255,255,0.10);
+      --wash: rgba(255,255,255,0.07); --select: rgba(57,135,229,0.20); --accent: #3987e5;
+      --st-waiting: #e0524f; --st-busy: #199e70; --st-idle: #c98500; --st-ended: #4a4a47;
+      --tool-shell: #3987e5; --tool-write: #199e70; --tool-read: #c98500; --tool-agent: #9085e9;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7;
+    --text-muted: #898781; --grid: #2c2c2a; --border: rgba(255,255,255,0.10);
+    --wash: rgba(255,255,255,0.07); --select: rgba(57,135,229,0.20); --accent: #3987e5;
+    --st-waiting: #e0524f; --st-busy: #199e70; --st-idle: #c98500; --st-ended: #4a4a47;
+    --tool-shell: #3987e5; --tool-write: #199e70; --tool-read: #c98500; --tool-agent: #9085e9;
+  }
+
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--page); color: var(--text-primary);
+    font: 13.5px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  a { color: var(--accent); }
+  button, select, input, textarea {
+    font: inherit; color: var(--text-primary);
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px;
+  }
+  button, select { cursor: pointer; }
+  button:hover { background: var(--wash); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.danger { color: var(--st-waiting); border-color: var(--st-waiting); }
+  button.ok { color: var(--st-busy); border-color: var(--st-busy); }
+  button.confirm { background: var(--st-waiting); color: #fff; border-color: var(--st-waiting); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  .muted { color: var(--text-muted); }
+  .num { font-variant-numeric: tabular-nums; }
+
+  header {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 16px 8px; border-bottom: 1px solid var(--grid); flex: none;
+  }
+  header h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; margin-right: 4px; }
+  header h1 span { color: var(--text-muted); font-weight: 400; }
+  .spacer { flex: 1; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+  .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--st-busy); box-shadow: 0 0 0 0 rgba(27,175,122,0.6); animation: pulse 2s infinite; }
+  .live.stale .dot { background: var(--st-waiting); animation: none; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(27,175,122,0.5); } 70% { box-shadow: 0 0 0 7px rgba(27,175,122,0); } 100% { box-shadow: 0 0 0 0 rgba(27,175,122,0); } }
+  .counts { display: inline-flex; gap: 6px; }
+  .count { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 12px; background: var(--wash); }
+  .count i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  #projectFilter { width: 150px; }
+
+  #warn {
+    display: none; padding: 7px 16px; font-size: 12.5px; flex: none;
+    background: color-mix(in srgb, var(--status-warning) 18%, var(--page)); border-bottom: 1px solid var(--grid);
+  }
+  #warn.on { display: block; }
+  #warn b { font-weight: 650; }
+  #warn .files { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
+
+  #main { flex: 1; display: flex; min-height: 0; }
+  #boardWrap { flex: 1; overflow: auto; padding: 12px 16px 16px; }
+  #board { display: flex; gap: 12px; align-items: flex-start; min-height: 100%; }
+  .col { flex: 1 1 0; min-width: 260px; max-width: 460px; display: flex; flex-direction: column; gap: 8px; }
+  .col.narrow { flex: 0.75 1 0; }
+  /* The idle column is where sessions pile up; let it take the room the empty
+     columns leave and lay its cards out as a grid instead of one long stack. */
+  .col.wide { flex: 2 1 0; max-width: none; }
+  .col .cards { display: flex; flex-direction: column; gap: 8px; }
+  .col.wide .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); align-items: start; }
+  .col h2 { font-size: 12.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary); display: flex; align-items: center; gap: 7px; padding: 2px 2px 0; }
+  .col h2 i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .col h2 .n { color: var(--text-muted); font-weight: 500; }
+  .col .empty { color: var(--text-muted); font-size: 12px; padding: 14px 10px; border: 1px dashed var(--grid); border-radius: 10px; text-align: center; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px 10px 14px; position: relative; cursor: pointer;
+    display: flex; flex-direction: column; gap: 5px; overflow: hidden;
+  }
+  .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--stripe, var(--st-unknown)); }
+  .card:hover { border-color: var(--text-muted); }
+  .card.selected { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .card.st-waiting { --stripe: var(--st-waiting); }
+  .card.st-busy { --stripe: var(--st-busy); }
+  .card.st-idle { --stripe: var(--st-idle); }
+  .card.st-unknown { --stripe: var(--st-unknown); }
+  .card.st-ended { --stripe: var(--st-ended); opacity: 0.85; }
+  .card .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+  .card .row.between { justify-content: space-between; }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .chip.state { color: #fff; background: var(--stripe, var(--st-unknown)); }
+  .chip.state.derived { opacity: 0.8; }
+  .chip.acct { background: var(--wash); color: var(--text-secondary); font-weight: 600; }
+  .chip.acct.desktop { color: var(--tool-agent); }
+  .chip.kind { background: transparent; border: 1px solid var(--border); color: var(--text-muted); font-weight: 500; }
+  .chip.flag { background: color-mix(in srgb, var(--status-warning) 22%, transparent); color: var(--text-primary); font-weight: 500; }
+  .chip.flag.critical { background: color-mix(in srgb, var(--status-critical) 18%, transparent); }
+  .card .since { color: var(--text-muted); font-size: 11.5px; }
+  .card .proj { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .proj b { color: var(--text-primary); font-weight: 650; }
+  .card .title { font-weight: 650; font-size: 13.5px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .kv { display: grid; grid-template-columns: 38px 1fr; gap: 2px 6px; font-size: 12.5px; }
+  .card .kv .k { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding-top: 2px; }
+  .card .kv .v { color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+  .card .kv .v.now { color: var(--text-primary); }
+  .card .kv .v .tool { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; padding: 0 5px; border-radius: 4px; background: var(--wash); }
+  .card .stats { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-muted); }
+  .card .stats b { color: var(--text-secondary); font-weight: 600; }
+  .card .stats .err b { color: var(--st-waiting); }
+  .card .files { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .files span { color: var(--tool-write); }
+  .card .overlap { font-size: 11.5px; color: var(--text-primary); background: color-mix(in srgb, var(--status-warning) 18%, transparent); border-radius: 6px; padding: 3px 7px; }
+  .card .overlap .f { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .card .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+  .card .actions button { padding: 3px 9px; font-size: 12px; }
+  .card .actions a { font-size: 12px; align-self: center; text-decoration: none; }
+  .card .ro { font-size: 11.5px; color: var(--text-muted); align-self: center; }
+
+  #drawer {
+    width: 420px; flex: none; border-left: 1px solid var(--grid); background: var(--surface-1);
+    display: none; flex-direction: column; min-height: 0;
+  }
+  #drawer.open { display: flex; }
+  #drawerHead { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--grid); }
+  #drawerHead h3 { font-size: 14px; font-weight: 650; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #drawerBody { flex: 1; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+  #drawerBody h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px; }
+  #drawerBody .block { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; color: var(--text-secondary); max-height: 220px; overflow: auto; background: var(--wash); border-radius: 8px; padding: 8px 10px; }
+  #drawerBody .meta { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: 12px; }
+  #drawerBody .meta .k { color: var(--text-muted); }
+  #drawerBody .turn { border-left: 2px solid var(--grid); padding: 2px 0 2px 10px; margin-bottom: 6px; font-size: 12px; }
+  #drawerBody .turn .th { color: var(--text-muted); font-size: 11px; }
+  #drawerBody .turn .tl { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #drawerBody .turn .tl.err { color: var(--st-waiting); }
+  #drawerBody .turn .tl.pending { color: var(--st-busy); }
+  #drawerBody .turn .tx { color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #composer { border-top: 1px solid var(--grid); padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+  #composer textarea { width: 100%; min-height: 84px; resize: vertical; font-size: 13px; }
+  #composer .crow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #composer .hint { font-size: 11.5px; color: var(--text-muted); flex: 1; }
+  #composer .ro { font-size: 12px; color: var(--text-muted); }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: var(--text-primary); color: var(--page); padding: 8px 14px; border-radius: 8px;
+    font-size: 12.5px; opacity: 0; pointer-events: none; transition: opacity 0.2s; z-index: 50; max-width: 80vw;
+  }
+  #toast.on { opacity: 1; }
+  #toast.err { background: var(--st-waiting); color: #fff; }
+
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    #main { flex-direction: column; }
+    #board { flex-direction: column; }
+    .col { max-width: none; min-width: 0; }
+    #drawer { width: auto; border-left: none; border-top: 1px solid var(--grid); position: fixed; left: 0; right: 0; bottom: 0; top: 30%; z-index: 40; box-shadow: 0 -10px 30px rgba(0,0,0,0.25); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>agentfdr <span>board</span></h1>
+  <span class="live" id="live"><span class="dot"></span><span id="liveText">…</span></span>
+  <span class="counts" id="counts"></span>
+  <span class="spacer"></span>
+  <select id="acctFilter" title="Account">
+    <option value="">all accounts</option>
+    <option value="cli">CLI</option>
+    <option value="desktop">Desktop</option>
+  </select>
+  <input id="projectFilter" type="search" placeholder="filter project…">
+  <select id="groupBy" title="Group by">
+    <option value="state">by state</option>
+    <option value="project">by project</option>
+    <option value="account">by account</option>
+  </select>
+  <a id="viewerLink" href="/" target="_blank" title="Timeline viewer" style="font-size:12px;text-decoration:none">timeline ↗</a>
+  <button id="langToggle" title="Language">日本語</button>
+  <button id="themeToggle" title="Theme">◐</button>
+</header>
+<div id="warn"></div>
+<div id="main">
+  <div id="boardWrap"><div id="board"></div></div>
+  <aside id="drawer">
+    <div id="drawerHead"><h3 id="drawerTitle"></h3><button id="drawerClose" title="Close (Esc)">✕</button></div>
+    <div id="drawerBody"></div>
+    <div id="composer">
+      <textarea id="composeText" placeholder=""></textarea>
+      <div class="crow">
+        <button id="composeSend" class="primary"></button>
+        <span class="hint" id="composeHint"></span>
+      </div>
+    </div>
+  </aside>
+</div>
+<div id="toast"></div>
+
+<script>
+const I18N = {
+  en: {
+    needsYou: 'Needs you', working: 'Working', idle: 'Idle', ended: 'Recently ended', unknown: 'Unknown',
+    waiting: 'waiting', busy: 'busy', idleS: 'idle', endedS: 'ended', unknownS: 'unknown',
+    cli: 'CLI', desktop: 'Desktop', bg: 'bg', worktree: 'worktree',
+    task: 'task', now: 'now', last: 'last',
+    turns: 'turns', tools: 'tools', errs: 'errors', ctx: 'ctx', est: 'est.',
+    files: 'files', noTask: '(no prompt yet)', noText: '(nothing said yet)',
+    sharesRepo: (n) => `shares repo with ${n} other live session${n === 1 ? '' : 's'}`,
+    sameFiles: 'both editing:',
+    open: 'timeline', steer: 'send…', approve: 'approve', deny: 'deny', stop: 'stop',
+    confirm: 'confirm?', readonly: 'read-only (no tmux pane)',
+    empty: 'no sessions', updated: (s) => `updated ${s}s ago`, stale: 'connection lost — retrying',
+    warnHead: (n) => `${n} repositor${n === 1 ? 'y' : 'ies'} with more than one live session`,
+    warnFiles: 'same file open in several sessions:',
+    composePh: 'Type an instruction for this session… (⌘/Ctrl+Enter to send)',
+    composeHint: 'Typed into the tmux pane and submitted, exactly as if you were at the keyboard. If the session is busy, Claude Code queues it.',
+    composeRo: 'This session has no tmux pane agentfdr can reach (Desktop app / background job) — read-only.',
+    send: 'Send', sent: 'sent', sentKey: (k) => `${k} sent`, sending: 'sending…',
+    prompt: 'Current task', reply: 'Latest from the agent', recent: 'Recent turns', details: 'Session',
+    dProject: 'project', dBranch: 'branch', dCwd: 'cwd', dModel: 'model', dPid: 'pid', dSession: 'session', dStarted: 'started', dTmux: 'tmux', dVersion: 'version', dState: 'state', dActivity: 'last activity',
+    inWindowNote: 'stats cover the last part of the transcript only (≥)',
+    pending: 'running', ago: (s) => `${s} ago`, forS: (s) => `for ${s}`,
+    hintDerived: 'inferred from the transcript (this session reports no status)',
+    tmuxOff: 'tmux is not running — steering is disabled',
+    stopHint: 'Sends Esc: interrupts the running turn (or rejects an open dialog).',
+    approveHint: 'Sends Enter: takes the highlighted (default) choice of the open dialog.',
+    denyHint: 'Sends Esc: rejects the open dialog.',
+  },
+  ja: {
+    needsYou: '要対応', working: '作業中', idle: '待機中', ended: '最近終了', unknown: '不明',
+    waiting: '要対応', busy: '作業中', idleS: '待機中', endedS: '終了', unknownS: '不明',
+    cli: 'CLI', desktop: 'Desktop', bg: 'bg', worktree: 'worktree',
+    task: '依頼', now: '現在', last: '直近',
+    turns: 'ターン', tools: 'ツール', errs: 'エラー', ctx: 'ctx', est: '概算',
+    files: '編集', noTask: '(依頼なし)', noText: '(まだ発言なし)',
+    sharesRepo: (n) => `同じリポジトリで他に ${n} セッションが稼働中`,
+    sameFiles: '同じファイルを編集:',
+    open: 'タイムライン', steer: '指示…', approve: '承認', deny: '拒否', stop: '停止',
+    confirm: '本当に？', readonly: '閲覧のみ (tmux なし)',
+    empty: 'セッションなし', updated: (s) => `${s}秒前に更新`, stale: '接続が切れました — 再試行中',
+    warnHead: (n) => `${n} 個のリポジトリで複数セッションが同時稼働中`,
+    warnFiles: '同じファイルを複数セッションが編集:',
+    composePh: 'このセッションへの指示を入力… (⌘/Ctrl+Enter で送信)',
+    composeHint: 'tmux ペインにそのまま入力して送信します（キーボードで打つのと同じ）。作業中ならClaude Code側でキューされます。',
+    composeRo: 'このセッションは agentfdr が届く tmux ペインで動いていません（Desktopアプリ / バックグラウンド）— 閲覧のみです。',
+    send: '送信', sent: '送信しました', sentKey: (k) => `${k} を送信しました`, sending: '送信中…',
+    prompt: '現在の依頼', reply: 'エージェントの直近の発言', recent: '直近のターン', details: 'セッション',
+    dProject: 'プロジェクト', dBranch: 'ブランチ', dCwd: 'cwd', dModel: 'モデル', dPid: 'pid', dSession: 'セッション', dStarted: '開始', dTmux: 'tmux', dVersion: 'バージョン', dState: '状態', dActivity: '最終更新',
+    inWindowNote: '統計はトランスクリプト末尾の範囲のみ (≥)',
+    pending: '実行中', ago: (s) => `${s}前`, forS: (s) => `${s}経過`,
+    hintDerived: 'トランスクリプトから推定（このセッションは状態を報告しません）',
+    tmuxOff: 'tmux が起動していないため指示は送れません',
+    stopHint: 'Esc を送ります: 実行中のターンを中断（ダイアログが開いていれば拒否）。',
+    approveHint: 'Enter を送ります: 開いているダイアログのデフォルト選択肢を選びます。',
+    denyHint: 'Esc を送ります: 開いているダイアログを拒否します。',
+  },
+};
+let LANG = localStorage.getItem('agentfdr.lang') || (navigator.language?.startsWith('ja') ? 'ja' : 'en');
+const t = () => I18N[LANG];
+const $ = (id) => document.getElementById(id);
+
+const savedTheme = localStorage.getItem('agentfdr.theme');
+if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+// Deep-linkable: ?theme=dark&uilang=en&group=project&acct=cli
+const qp = new URLSearchParams(location.search);
+if (qp.get('theme') === 'dark' || qp.get('theme') === 'light') document.documentElement.dataset.theme = qp.get('theme');
+if (qp.get('uilang') === 'en' || qp.get('uilang') === 'ja') LANG = qp.get('uilang');
+$('themeToggle').addEventListener('click', () => {
+  const root = document.documentElement;
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const cur = root.dataset.theme || (dark ? 'dark' : 'light');
+  root.dataset.theme = cur === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('agentfdr.theme', root.dataset.theme);
+});
+$('langToggle').addEventListener('click', () => {
+  LANG = LANG === 'ja' ? 'en' : 'ja';
+  localStorage.setItem('agentfdr.lang', LANG);
+  applyLang();
+  render();
+});
+function applyLang() {
+  document.documentElement.lang = LANG;
+  $('langToggle').textContent = LANG === 'ja' ? 'EN' : '日本語';
+  const opts = $('groupBy').options;
+  opts[0].text = LANG === 'ja' ? '状態別' : 'by state';
+  opts[1].text = LANG === 'ja' ? 'プロジェクト別' : 'by project';
+  opts[2].text = LANG === 'ja' ? 'アカウント別' : 'by account';
+  $('acctFilter').options[0].text = LANG === 'ja' ? '全アカウント' : 'all accounts';
+  $('projectFilter').placeholder = LANG === 'ja' ? 'プロジェクトで絞る…' : 'filter project…';
+  $('composeText').placeholder = t().composePh;
+  $('composeSend').textContent = t().send;
+}
+
+// --- state --------------------------------------------------------------------
+let board = null;
+let lastFetchAt = 0;
+let fetchFailed = false;
+let selectedPid = null;
+const confirmTimers = new Map(); // `${pid}:${action}` -> timeout id
+const armed = new Set();
+
+for (const id of ['acctFilter', 'groupBy']) $(id).addEventListener('change', () => { persist(); render(); });
+$('projectFilter').addEventListener('input', () => { persist(); render(); });
+function persist() {
+  localStorage.setItem('agentfdr.board.acct', $('acctFilter').value);
+  localStorage.setItem('agentfdr.board.group', $('groupBy').value);
+}
+$('acctFilter').value = qp.get('acct') ?? localStorage.getItem('agentfdr.board.acct') ?? '';
+$('groupBy').value = qp.get('group') ?? localStorage.getItem('agentfdr.board.group') ?? 'state';
+
+// --- polling ------------------------------------------------------------------
+async function poll() {
+  try {
+    const res = await fetch('/api/board');
+    if (!res.ok) throw new Error(res.statusText);
+    board = await res.json();
+    lastFetchAt = Date.now();
+    fetchFailed = false;
+  } catch {
+    fetchFailed = true;
+  }
+  render();
+}
+setInterval(poll, 3000);
+setInterval(tickLive, 1000);
+poll();
+
+function tickLive() {
+  const el = $('live');
+  el.classList.toggle('stale', fetchFailed);
+  $('liveText').textContent = fetchFailed ? t().stale : t().updated(Math.max(0, Math.round((Date.now() - lastFetchAt) / 1000)));
+}
+
+// --- formatting -----------------------------------------------------------------
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function fmtDur(ms) {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h${m % 60 ? ` ${m % 60}m` : ''}`;
+  return `${Math.floor(h / 24)}d`;
+}
+function fmtK(n) {
+  if (n == null) return '—';
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k`;
+  return String(n);
+}
+function fmtUsd(v) { return v == null ? '—' : v >= 10 ? `$${v.toFixed(0)}` : `$${v.toFixed(2)}`; }
+function fmtTime(ms) { return ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'; }
+function shortModel(m) { return (m ?? '').replace(/^claude-/, '').replace(/-\d{8}$/, ''); }
+function baseName(p) { return String(p).split('/').filter(Boolean).pop() ?? p; }
+function stateLabel(st) { return { waiting: t().waiting, busy: t().busy, idle: t().idleS, unknown: t().unknownS, ended: t().endedS }[st] ?? st; }
+// waitingFor comes from Claude Code's registry in English; 'possibly a dialog' is agentfdr's own inference.
+const WAITING_JA = { 'permission prompt': '許可待ち', 'input needed': '入力待ち', 'dialog open': 'ダイアログ表示中', 'sandbox request': 'サンドボックス要求', 'worker request': 'ワーカー要求', 'possibly a dialog': 'ダイアログの可能性' };
+function waitingLabel(w) { return LANG === 'ja' ? (WAITING_JA[w] ?? w) : w; }
+
+// --- render --------------------------------------------------------------------
+function visibleSessions() {
+  if (!board) return [];
+  const acct = $('acctFilter').value;
+  const q = $('projectFilter').value.trim().toLowerCase();
+  return board.sessions.filter((s) =>
+    (!acct || s.account === acct) &&
+    (!q || (s.project ?? '').toLowerCase().includes(q) || (s.cwd ?? '').toLowerCase().includes(q) || (s.name ?? '').toLowerCase().includes(q))
+  );
+}
+
+function render() {
+  if (!board) { $('board').innerHTML = `<div class="col"><div class="empty">…</div></div>`; return; }
+  const sessions = visibleSessions();
+  renderCounts(board.sessions);
+  renderWarn();
+  const groupBy = $('groupBy').value;
+  const cols = [];
+  if (groupBy === 'state') {
+    for (const [st, label, color] of [['waiting', t().needsYou, 'var(--st-waiting)'], ['busy', t().working, 'var(--st-busy)'], ['idle', t().idle, 'var(--st-idle)']]) {
+      const cards = sessions.filter((s) => s.state === st);
+      cols.push({ key: st, label, color, cards, wide: st === 'idle' && cards.length > 3 });
+    }
+    const unk = sessions.filter((s) => s.state === 'unknown');
+    if (unk.length) cols.push({ key: 'unknown', label: t().unknown, color: 'var(--st-unknown)', cards: unk });
+    const q = $('projectFilter').value.trim().toLowerCase();
+    const recent = (board.recent ?? []).filter((r) => !q || (r.project ?? '').toLowerCase().includes(q));
+    if (recent.length && !$('acctFilter').value) cols.push({ key: 'ended', label: t().ended, color: 'var(--st-ended)', ended: recent, narrow: true });
+  } else {
+    const key = groupBy === 'project' ? (s) => s.repoRoot ? baseName(s.repoRoot) : (s.project ?? '?') : (s) => s.account;
+    const map = new Map();
+    for (const s of sessions) { const k = key(s); if (!map.has(k)) map.set(k, []); map.get(k).push(s); }
+    for (const [k, cards] of [...map].sort((a, b) => a[0].localeCompare(b[0]))) {
+      cols.push({ key: k, label: groupBy === 'account' ? (k === 'desktop' ? t().desktop : t().cli) : k, color: null, cards });
+    }
+  }
+  const html = cols.map((c) => `
+    <section class="col${c.narrow ? ' narrow' : ''}${c.wide ? ' wide' : ''}">
+      <h2>${c.color ? `<i style="background:${c.color}"></i>` : ''}${esc(c.label)} <span class="n">${(c.cards ?? c.ended).length}</span></h2>
+      <div class="cards">${c.cards ? (c.cards.length ? c.cards.map(cardHtml).join('') : `<div class="empty">${t().empty}</div>`) : c.ended.map(endedHtml).join('')}</div>
+    </section>`).join('');
+  $('board').innerHTML = html || `<div class="col"><div class="empty">${t().empty}</div></div>`;
+  renderDrawer();
+}
+
+function renderCounts(all) {
+  const n = (st) => all.filter((s) => s.state === st).length;
+  $('counts').innerHTML = [
+    ['waiting', n('waiting'), 'var(--st-waiting)'],
+    ['busy', n('busy'), 'var(--st-busy)'],
+    ['idle', n('idle'), 'var(--st-idle)'],
+  ].map(([st, c, col]) => `<span class="count"><i style="background:${col}"></i>${c} ${esc(stateLabel(st))}</span>`).join('');
+}
+
+function renderWarn() {
+  const el = $('warn');
+  const ov = (board.overlaps ?? []).filter((o) => o.pids.length > 1);
+  if (!ov.length) { el.classList.remove('on'); el.innerHTML = ''; return; }
+  const byPid = new Map(board.sessions.map((s) => [s.pid, s]));
+  const parts = ov.map((o) => {
+    const names = o.pids.map((p) => byPid.get(p)?.name ?? p).join(', ');
+    const files = o.files.length ? ` — <span class="files">${t().warnFiles} ${o.files.map((f) => esc(baseName(f.file))).join(', ')}</span>` : '';
+    return `<b>${esc(baseName(o.repo))}</b> (${esc(names)})${files}`;
+  });
+  el.innerHTML = `⚠ ${t().warnHead(ov.length)}: ${parts.join(' · ')}`;
+  el.classList.add('on');
+}
+
+function overlapFor(s) {
+  return (board.overlaps ?? []).find((o) => o.pids.includes(s.pid)) ?? null;
+}
+
+function cardHtml(s) {
+  const now = board.generatedAt;
+  const st = s.state;
+  const since = s.stateSince ? fmtDur(now - s.stateSince) : null;
+  const ov = overlapFor(s);
+  const w = s.window;
+  const files = w.files.slice(-4).map(baseName);
+  const flags = w.flags.slice(0, 4);
+  const nowLine = s.currentTool
+    ? `<span class="tool">${esc(s.currentTool.name)}</span> ${esc(s.currentTool.summary ?? '')}${s.currentTool.since ? ` <span class="muted">(${fmtDur(now - s.currentTool.since)})</span>` : ''}`
+    : (s.lastText ? esc(s.lastText) : `<span class="muted">${t().noText}</span>`);
+  const nowKey = s.currentTool ? t().now : t().last;
+  const cur = (s.state !== 'idle' && s.state !== 'ended');
+  const canSteer = s.controllable;
+  const btn = (act, cls, label, hint) => {
+    const key = `${s.pid}:${act}`;
+    const isArmed = armed.has(key);
+    return `<button class="${isArmed ? 'confirm' : cls}" data-act="${act}" data-pid="${s.pid}" title="${esc(hint)}">${isArmed ? t().confirm : label}</button>`;
+  };
+  return `
+  <article class="card st-${st}${s.pid === selectedPid ? ' selected' : ''}" data-pid="${s.pid}">
+    <div class="row between">
+      <span class="row">
+        <span class="chip state${s.stateDerived ? ' derived' : ''}" title="${s.stateDerived ? esc(t().hintDerived) : ''}">${esc(stateLabel(st))}${s.waitingFor ? ` · ${esc(waitingLabel(s.waitingFor))}` : ''}</span>
+        ${since ? `<span class="since">${esc(t().forS(since))}</span>` : ''}
+      </span>
+      <span class="row">
+        <span class="chip acct ${s.account}">${s.account === 'desktop' ? t().desktop : t().cli}</span>
+        ${s.kind === 'bg' ? `<span class="chip kind">${t().bg}</span>` : ''}
+      </span>
+    </div>
+    <div class="proj" title="${esc(s.cwd ?? '')}"><b>${esc(s.project ?? '?')}</b>${s.worktreeOf ? ` <span class="muted">(${t().worktree} of ${esc(baseName(s.worktreeOf))})</span>` : ''}${s.gitBranch ? ` <span class="muted">· ${esc(s.gitBranch)}</span>` : ''}${s.model ? ` <span class="muted">· ${esc(shortModel(s.model))}</span>` : ''}</div>
+    <div class="title">${esc(s.title ?? s.name ?? s.sessionId ?? '')}</div>
+    <div class="kv">
+      <span class="k">${t().task}</span><span class="v">${s.prompt ? esc(s.prompt.text) : `<span class="muted">${t().noTask}</span>`}${s.prompt?.at ? ` <span class="muted">(${fmtDur(now - s.prompt.at)})</span>` : ''}</span>
+      <span class="k">${nowKey}</span><span class="v${cur ? ' now' : ''}">${nowLine}</span>
+    </div>
+    <div class="stats">
+      <span title="${w.truncated ? esc(t().inWindowNote) : ''}"><b>${w.truncated ? '≥' : ''}${w.turns}</b> ${t().turns}</span>
+      <span><b>${w.toolCalls}</b> ${t().tools}</span>
+      ${w.toolErrors ? `<span class="err"><b>${w.toolErrors}</b> ${t().errs}</span>` : ''}
+      <span>${t().ctx} <b>${fmtK(w.contextTokens)}</b></span>
+      ${w.estUsd != null && w.estUsd > 0 ? `<span>${t().est} <b>${fmtUsd(w.estUsd)}</b></span>` : ''}
+    </div>
+    ${files.length ? `<div class="files" title="${esc(w.files.join('\n'))}">${t().files}: ${files.map((f) => `<span>${esc(f)}</span>`).join(' ')}${w.files.length > 4 ? ` +${w.files.length - 4}` : ''}</div>` : ''}
+    ${ov ? `<div class="overlap">⚠ ${t().sharesRepo(ov.pids.length - 1)}${ov.files.filter((f) => f.pids.includes(s.pid)).length ? ` · ${t().sameFiles} <span class="f">${ov.files.filter((f) => f.pids.includes(s.pid)).map((f) => esc(baseName(f.file))).join(', ')}</span>` : ''}</div>` : ''}
+    ${flags.length ? `<div class="row">${flags.map((f) => `<span class="chip flag ${f.severity}" title="${esc(f.detail ?? '')}">${esc(f.title ?? f.type)}</span>`).join('')}</div>` : ''}
+    <div class="actions">
+      ${s.transcript ? `<a href="/?live=1#${encodeURIComponent(s.transcript.id)}" target="_blank" data-stop>${t().open} ↗</a>` : ''}
+      ${canSteer ? `<button data-act="steer" data-pid="${s.pid}">${t().steer}</button>` : `<span class="ro">${t().readonly}</span>`}
+      ${canSteer && st === 'waiting' && !s.stateDerived ? btn('approve', 'ok', t().approve, t().approveHint) + btn('deny', 'danger', t().deny, t().denyHint) : ''}
+      ${canSteer && st === 'busy' ? btn('interrupt', 'danger', t().stop, t().stopHint) : ''}
+    </div>
+  </article>`;
+}
+
+function endedHtml(r) {
+  const now = board.generatedAt;
+  return `
+  <article class="card st-ended" data-ended="${esc(r.id)}">
+    <div class="row between">
+      <span class="chip state">${t().endedS}</span>
+      <span class="since">${fmtDur(now - r.mtimeMs)} ${LANG === 'ja' ? '前' : 'ago'}</span>
+    </div>
+    <div class="proj"><b>${esc(r.project ?? r.slug)}</b>${r.gitBranch ? ` <span class="muted">· ${esc(r.gitBranch)}</span>` : ''}</div>
+    <div class="title">${esc(r.title ?? r.prompt ?? r.id.slice(0, 8))}</div>
+    ${r.lastText ? `<div class="kv"><span class="k">${t().last}</span><span class="v">${esc(r.lastText)}</span></div>` : ''}
+    <div class="actions"><a href="/#${encodeURIComponent(r.id)}" target="_blank" data-stop>${t().open} ↗</a></div>
+  </article>`;
+}
+
+// --- interactions -----------------------------------------------------------------
+$('board').addEventListener('click', (ev) => {
+  const a = ev.target.closest('a[data-stop]');
+  if (a) return; // let links be links
+  const b = ev.target.closest('button[data-act]');
+  if (b) {
+    ev.stopPropagation();
+    const pid = Number(b.dataset.pid);
+    const act = b.dataset.act;
+    if (act === 'steer') { select(pid); $('composeText').focus(); return; }
+    armOrFire(pid, act);
+    return;
+  }
+  const card = ev.target.closest('.card[data-pid]');
+  if (card) select(Number(card.dataset.pid));
+});
+
+function select(pid) {
+  selectedPid = pid === selectedPid ? pid : pid;
+  $('drawer').classList.add('open');
+  render();
+}
+$('drawerClose').addEventListener('click', () => { selectedPid = null; $('drawer').classList.remove('open'); render(); });
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && document.activeElement !== $('composeText')) { selectedPid = null; $('drawer').classList.remove('open'); render(); }
+});
+
+// Approve / deny / stop are two-click: the first click arms the button (label
+// turns into "confirm?") and the second within 4 s fires. Nothing modal.
+function armOrFire(pid, act) {
+  const key = `${pid}:${act}`;
+  if (armed.has(key)) {
+    armed.delete(key);
+    clearTimeout(confirmTimers.get(key));
+    sendAction(pid, { action: act });
+  } else {
+    armed.add(key);
+    confirmTimers.set(key, setTimeout(() => { armed.delete(key); render(); }, 4000));
+  }
+  render();
+}
+
+async function sendAction(pid, payload) {
+  toast(t().sending);
+  try {
+    const res = await fetch('/api/board/send', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pid, ...payload }),
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || res.statusText);
+    toast(payload.action ? t().sentKey(payload.action) : t().sent);
+    return true;
+  } catch (err) {
+    toast(String(err.message || err), true);
+    return false;
+  }
+}
+
+$('composeSend').addEventListener('click', composeSend);
+$('composeText').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); composeSend(); }
+});
+async function composeSend() {
+  const text = $('composeText').value;
+  if (!selectedPid || !text.trim()) return;
+  $('composeSend').disabled = true;
+  const ok = await sendAction(selectedPid, { text });
+  $('composeSend').disabled = false;
+  if (ok) $('composeText').value = '';
+}
+
+function renderDrawer() {
+  const s = board?.sessions.find((x) => x.pid === selectedPid);
+  if (!s) {
+    if (selectedPid != null) { selectedPid = null; $('drawer').classList.remove('open'); }
+    return;
+  }
+  const now = board.generatedAt;
+  $('drawerTitle').textContent = `${s.project ?? ''} — ${s.title ?? s.name ?? ''}`;
+  const meta = [
+    [t().dState, `${stateLabel(s.state)}${s.waitingFor ? ` · ${waitingLabel(s.waitingFor)}` : ''}${s.stateSince ? ` (${fmtDur(now - s.stateSince)})` : ''}`],
+    [t().dProject, `${s.project ?? '?'}${s.gitBranch ? ` · ${s.gitBranch}` : ''}`],
+    [t().dCwd, s.cwd ?? '—'],
+    [t().dModel, shortModel(s.model) || '—'],
+    [t().dActivity, s.lastActivityAt ? `${fmtTime(s.lastActivityAt)} (${fmtDur(now - s.lastActivityAt)})` : '—'],
+    [t().dStarted, s.startedAt ? `${fmtTime(s.startedAt)} (${fmtDur(now - s.startedAt)})` : '—'],
+    [t().dPid, `${s.pid} · ${s.account === 'desktop' ? t().desktop : t().cli}${s.kind === 'bg' ? ' · bg' : ''} · v${s.version ?? '?'}`],
+    [t().dTmux, s.tmux ?? '—'],
+    [t().dSession, s.sessionId ?? '—'],
+  ];
+  const turns = s.recentTurns ?? [];
+  $('drawerBody').innerHTML = `
+    <div><h4>${t().prompt}</h4><div class="block">${s.prompt ? esc(s.prompt.text) : `<span class="muted">${t().noTask}</span>`}</div></div>
+    <div><h4>${t().reply}</h4><div class="block">${s.lastText ? esc(s.lastText) : `<span class="muted">${t().noText}</span>`}</div></div>
+    ${turns.length ? `<div><h4>${t().recent}</h4>${turns.map((tu) => `
+      <div class="turn">
+        <div class="th">${tu.at ? fmtTime(tu.at) : ''}</div>
+        ${tu.tools.map((c) => `<div class="tl${c.error ? ' err' : ''}${c.pending ? ' pending' : ''}" title="${esc(c.summary ?? '')}">${esc(c.name)} ${esc(c.summary ?? '')}${c.pending ? ` · ${t().pending}` : c.ms != null ? ` · ${fmtDur(c.ms)}` : ''}</div>`).join('')}
+        ${tu.text ? `<div class="tx">${esc(tu.text)}</div>` : ''}
+      </div>`).join('')}</div>` : ''}
+    <div><h4>${t().details}</h4><div class="meta">${meta.map(([k, v]) => `<span class="k">${esc(k)}</span><span class="mono" style="word-break:break-all">${esc(v)}</span>`).join('')}</div></div>
+    ${s.transcript ? `<div><a href="/?live=1#${encodeURIComponent(s.transcript.id)}" target="_blank">${t().open} ↗</a></div>` : ''}
+  `;
+  const ro = !s.controllable;
+  $('composeText').disabled = ro;
+  $('composeSend').disabled = ro;
+  $('composeHint').textContent = ro ? (board.tmux === false ? t().tmuxOff : t().composeRo) : t().composeHint;
+}
+
+let toastTimer;
+function toast(msg, isErr = false) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.toggle('err', isErr);
+  el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), isErr ? 5000 : 1800);
+}
+
+applyLang();
+</script>
+</body>
+</html>

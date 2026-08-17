@@ -42,6 +42,7 @@ That's the whole setup. Your sessions are already recorded — Claude Code write
 - 🚨 **Anomaly detection** — tool loops, error streaks, context bloat, token spikes, cache thrash, file churn, intent drift, and refusals, flagged automatically
 - ⧉ **Subagent tree** — work delegated to subagents lands in transcripts of its own and never shows up in the session totals; the **Subagents** tab reattaches every agent to the turn that spawned it (nested agents included) with its turns, tool calls, billed tokens, and anomalies
 - 📡 **Live watch mode** — `agentfdr watch` follows a session that's still running
+- 🗂 **Live session board** — `agentfdr board` puts every running Claude Code session on one kanban: **needs you** (permission prompt / question) · **working** · **idle**, with the current task, what the agent is doing right now, cost so far, and a warning when two sessions are editing the same repository or file. CLI and Desktop-app sessions side by side; type instructions, approve, deny or interrupt a tmux-hosted session from the page
 - 📊 **Plan usage** — 5-hour window / daily / weekly burn across all projects, a 12-month activity heatmap, plan-tier auto-detection, and calibratable budgets with warning bars
 - 💸 **Cost estimation** — estimated USD per session and per model, from list prices
 - 🚦 **CI gate** — `agentfdr assert --no-loops --max-tokens 2M` exits 1 on violation
@@ -71,6 +72,7 @@ agentfdr                    # open the newest session's timeline in your browser
 agentfdr list               # all recorded sessions across all projects
 agentfdr open 35cb18        # open a session by id prefix (or path to a .jsonl)
 agentfdr watch              # same, but live: the timeline follows the running session
+agentfdr board              # live kanban of every running session; steer tmux sessions from it
 agentfdr blame 35cb18       # markdown autopsy — paste it into an issue
 agentfdr diff 35cb18 9af7ec # compare two sessions: failed attempt vs retry
 agentfdr search "login bug" # full-text search across every session
@@ -96,6 +98,21 @@ Tabs switch the main view: **Timeline / Turns / Prompts / Subagents / Usage / Co
 ![Plan usage panel: 5-hour window, daily history, weekly totals and per-model breakdown](https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-usage-dark.png)
 
 **Plan usage** — `agentfdr usage` (and the **Usage** panel in the viewer) aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour rolling window, per-day history, and the rolling week, plus a per-model breakdown. Your plan tier (e.g. `claude_max · default_claude_max_5x`) is read from Claude Code's local config. Anthropic doesn't publish exact token limits, so you set your own budgets (`--budget-5h` / `--budget-week`, env `AGENTFDR_BUDGET_5H` / `AGENTFDR_BUDGET_WEEK`, or inputs in the viewer) and calibrate them against Claude Code's `/usage` screen — agentfdr then shows % consumed with warning colors.
+
+## The board
+
+![Live session board: needs-you / working / idle columns, one card per running Claude Code session](https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-board-dark.png)
+
+`agentfdr board` is the other half of the cockpit: not one session after the fact, but **every session that is running right now**. Claude Code registers each live process under `~/.claude/sessions/` — its working directory, whether it is busy, idle or waiting on a dialog, and (for the CLI) the tmux pane it runs in. The board joins that registry with the tail of each transcript and refreshes every few seconds:
+
+- **Columns by state** — 🔴 *Needs you* (permission prompt, question, plan approval), 🟢 *Working*, 🟡 *Idle* (finished, waiting for your next prompt), plus *Recently ended*. Group by project or account instead with one click.
+- **Each card** — the task you typed, what the agent is doing this second (or the last thing it said), turns / tool calls / errors / context size / estimated cost since that prompt, files it edited, and any anomaly flags on the current task.
+- **Two accounts, one screen** — sessions are badged **CLI** or **Desktop** (Claude Code inside the Claude desktop app), and the filter narrows to either.
+- **Cross-session influence** — sessions on the same repository (worktrees resolve to their parent) are grouped, and a banner names the files that more than one live session is editing.
+- **Steering** — for sessions running in tmux (any `tmux new-session … claude` launcher), the card offers *send…*, *approve*, *deny* and *stop*. Text is typed into the pane and submitted exactly as if you were at the keyboard (multi-line goes in as one paste); approve/deny press Enter/Esc on the open dialog; stop interrupts the turn. Approve/deny/stop are two-click, never modal. Desktop-app and background (`--bg`) sessions have no pane to reach and are read-only.
+- **Cheap by design** — live transcripts grow past 100 MB; the board reads only the last 2 MB of each (`AGENTFDR_BOARD_TAIL_MB` to change), so a poll costs milliseconds. Stats prefixed with `≥` mean the current task started before that window.
+
+The steering endpoint only answers same-origin `POST`s from the board page itself, and the server stays on `127.0.0.1` — a page that can type into your agents must not be reachable by any other tab. `agentfdr board --json` prints the same board once, for scripts.
 
 ## Anomaly flags
 
@@ -145,6 +162,8 @@ Subagents get transcripts of their own — `<session-id>/subagents/**/agent-*.js
 
 Neither transcript format is a published API, so the parsers are written to survive them: unknown line types become meta events, malformed lines are counted and skipped, and each format's quirks are contained in its own adapter module. Data locations can be overridden with `AGENTFDR_CLAUDE_DIR` / `AGENTFDR_CODEX_DIR`. (Plan usage tracks your Claude subscription and stays Claude-only.)
 
+The board adds two more local sources, both Claude-only: the live-process registry `~/.claude/sessions/<pid>.json` (status and tmux pane, written by Claude Code itself; entries whose process is gone are ignored) and `~/.claude/history.jsonl` for the full text of the prompt that started the current task. Steering shells out to `tmux send-keys` / `paste-buffer` against the registered pane — no private protocol, nothing injected into Claude Code.
+
 ## Privacy
 
 Transcripts contain your code, your prompts, and your file paths. Therefore:
@@ -165,6 +184,7 @@ Transcripts contain your code, your prompts, and your file paths. Therefore:
 - [x] Convergence annotation on loops (worded as a hint, never an all-clear) — after the false-positive rate is boring
 - [x] Intent-drift detection — flag the turn where the tool/file footprint diverges from what the prompt asked for
 - [x] Subagent/sidechain tree rendering
+- [x] Live session board (`agentfdr board`) — every running session on one kanban, with steering for tmux sessions
 
 ## Development
 

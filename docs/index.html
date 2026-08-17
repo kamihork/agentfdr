@@ -197,6 +197,7 @@
       <div class="feat"><div class="ico">📋</div><div class="t" data-i18n="f6t">Markdown autopsy</div><p data-i18n="f6">agentfdr blame renders the whole analysis as markdown, ready to paste into an issue or a Slack thread.</p></div>
       <div class="feat"><div class="ico">🔎</div><div class="t" data-i18n="f7t">Full-text search</div><p data-i18n="f7">agentfdr search scans every prompt, reply, tool call and result across all your sessions — and the Search tab jumps straight to the matching turn.</p></div>
       <div class="feat"><div class="ico">⚖️</div><div class="t" data-i18n="f8t">Session diff</div><p data-i18n="f8">agentfdr diff puts the failed attempt next to the successful retry: stats, anomalies, tool mix, and which files each one touched.</p></div>
+      <div class="feat"><div class="ico">🗂</div><div class="t" data-i18n="f9t">Live session board</div><p data-i18n="f9">agentfdr board puts every running Claude Code session on one kanban — needs you / working / idle — with the current task, cost so far, and a warning when two sessions touch the same file. Send instructions, approve or stop tmux sessions from the page.</p></div>
     </div>
   </section>
 
@@ -270,6 +271,7 @@ const I18N = {
     f6t: 'Markdown autopsy', f6: 'agentfdr blame renders the whole analysis as markdown, ready to paste into an issue or a Slack thread.',
     f7t: 'Full-text search', f7: 'agentfdr search scans every prompt, reply, tool call and result across all your sessions — and the Search tab jumps straight to the matching turn.',
     f8t: 'Session diff', f8: 'agentfdr diff puts the failed attempt next to the successful retry: stats, anomalies, tool mix, and which files each one touched.',
+    f9t: 'Live session board', f9: 'agentfdr board puts every running Claude Code session on one kanban — needs you / working / idle — with the current task, cost so far, and a warning when two sessions touch the same file. Send instructions, approve or stop tmux sessions from the page.',
     usageH: 'Know what your plan is really burning.',
     u1: "agentfdr usage aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour window, daily history, and the rolling week — with a 12-month activity heatmap, per-model breakdown and estimated cost.",
     u2: "Your plan tier is auto-detected. Set budgets, calibrate them once against Claude Code's /usage screen, and get warning bars before you hit the wall.",
@@ -304,6 +306,7 @@ const I18N = {
     f6t: 'Markdown 解剖レポート', f6: 'agentfdr blame が分析結果を Markdown で出力。issue や Slack スレッドにそのまま貼れます。',
     f7t: '全文検索', f7: 'agentfdr search が全セッションのプロンプト・応答・ツール呼び出し・結果を横断検索。ビューアの検索タブからは該当ターンへ直接ジャンプできます。',
     f8t: 'セッション比較', f8: 'agentfdr diff が失敗した試行と成功した再試行を並べて比較。統計・異常・ツール構成・編集ファイルの違いが一目でわかります。',
+    f9t: 'ライブセッションボード', f9: 'agentfdr board が稼働中の全 Claude Code セッションを1枚のカンバンに — 要対応 / 作業中 / 待機中。今の依頼、ここまでのコスト、2つのセッションが同じファイルに触れている時の警告付き。tmux 上のセッションには画面から指示・承認・停止を送れます。',
     usageH: 'プランを何にどれだけ使ったか、正確に。',
     u1: 'agentfdr usage は全プロジェクトの transcript を、サブスクリプションの計測単位と同じ形に集計します。現在の5時間ウィンドウ、日別履歴、直近7日。12ヶ月のアクティビティヒートマップ、モデル別内訳と推定コスト付きです。',
     u2: 'プラン種別は自動検出。予算を設定して Claude Code の /usage と一度見比べれば、上限に当たる前に警告バーが教えてくれます。',

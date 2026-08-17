@@ -17,8 +17,10 @@ import { parseTokenCount } from './assert.js';
 import { diffSessions } from './diff.js';
 import { buildDocs, searchSessions } from './search.js';
 import { buildSubagentTree, subagentTotals, subagentStamp } from './subagents.js';
+import { collectBoard, sendToSession, tmuxAvailable } from './board.js';
 
 const UI_PATH = join(dirname(fileURLToPath(import.meta.url)), 'ui.html');
+const BOARD_PATH = join(dirname(fileURLToPath(import.meta.url)), 'board.html');
 
 // Parse results keyed by file, invalidated by (mtime, size). Live mode polls
 // every couple of seconds; re-parsing a multi-MB transcript each poll when
@@ -82,14 +84,12 @@ function loadForUsage(file) {
   return lite;
 }
 
-export function startServer({ port = 4477, initialSession = null, live = false, config } = {}) {
+export function startServer({ port = 4477, initialSession = null, live = false, config, page = '/' } = {}) {
   if (config) serverConfig = config;
   const server = createServer((req, res) => {
-    try {
-      route(req, res);
-    } catch (err) {
-      sendJson(res, 500, { error: String(err?.message ?? err) });
-    }
+    Promise.resolve()
+      .then(() => route(req, res))
+      .catch((err) => sendJson(res, 500, { error: String(err?.message ?? err) }));
   });
 
   // If the requested port is taken (a previous viewer still running), walk up
@@ -99,7 +99,7 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
     const tryListen = () => {
       server.listen(attempt, '127.0.0.1', () => {
         const qs = live ? '?live=1' : '';
-        const url = `http://127.0.0.1:${attempt}/${qs}${initialSession ? `#${initialSession}` : ''}`;
+        const url = `http://127.0.0.1:${attempt}${page}${qs}${initialSession ? `#${initialSession}` : ''}`;
         resolvePromise({ server, url, port: attempt });
       });
     };
@@ -114,12 +114,44 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
     tryListen();
   });
 
-  function route(req, res) {
+  async function route(req, res) {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       // Read on every request so UI hacking needs no restart.
       res.end(readFileSync(UI_PATH, 'utf8'));
+      return;
+    }
+    if (url.pathname === '/board' || url.pathname === '/board/') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(readFileSync(BOARD_PATH, 'utf8'));
+      return;
+    }
+    if (url.pathname === '/api/board') {
+      const board = collectBoard({ config: serverConfig, tmuxAvailable: await tmuxAvailable() });
+      sendJson(res, 200, board);
+      return;
+    }
+    if (url.pathname === '/api/board/send') {
+      // This endpoint types into a live agent session. It only ever runs for
+      // requests the board page itself made: POST + JSON body (a cross-origin
+      // page can't send that without a preflight we never answer) AND a
+      // same-origin fetch, so a stray tab can't drive your agents.
+      if (req.method !== 'POST') {
+        sendJson(res, 405, { error: 'POST only' });
+        return;
+      }
+      if (!isSameOrigin(req)) {
+        sendJson(res, 403, { error: 'cross-origin request refused' });
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const result = await sendToSession(body.pid, { text: body.text, action: body.action });
+        sendJson(res, 200, result);
+      } catch (err) {
+        sendJson(res, 400, { error: String(err?.message ?? err) });
+      }
       return;
     }
     if (url.pathname === '/api/sessions') {
@@ -220,6 +252,53 @@ export function startServer({ port = 4477, initialSession = null, live = false, 
     }
     sendJson(res, 404, { error: 'not found' });
   }
+}
+
+/**
+ * A request counts as same-origin when the browser says so. Sec-Fetch-Site is
+ * authoritative when present; otherwise the Origin header must match the Host
+ * we are bound to; a request with neither is not from a modern browser page.
+ */
+export function isSameOrigin(req) {
+  // Host must be loopback FIRST: under DNS rebinding a page from evil.example
+  // resolves to 127.0.0.1 and the browser sends Sec-Fetch-Site: same-origin
+  // in good faith — the Host header still says evil.example, which we refuse.
+  const host = req.headers.host;
+  if (!host || !/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host)) return false;
+  const site = req.headers['sec-fetch-site'];
+  if (site) return site === 'same-origin';
+  const origin = req.headers.origin;
+  if (!origin) return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function readJsonBody(req, limit = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    if (!/^application\/json/i.test(req.headers['content-type'] ?? '')) {
+      reject(new Error('expected application/json'));
+      return;
+    }
+    let data = '';
+    req.on('data', (chunk) => {
+      data += chunk;
+      if (data.length > limit) {
+        reject(new Error('body too large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      try {
+        resolve(data ? JSON.parse(data) : {});
+      } catch {
+        reject(new Error('invalid JSON body'));
+      }
+    });
+    req.on('error', reject);
+  });
 }
 
 function sendJson(res, status, body) {
