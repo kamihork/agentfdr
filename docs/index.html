@@ -7,7 +7,7 @@
 <meta name="description" content="When Claude Code or Codex CLI loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact. Zero instrumentation, local-first.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="agentfdr — flight data recorder for local coding agents">
-<meta property="og:description" content="Dissect why Claude Code or Codex looped, drifted, or burned tokens. npx agentfdr — zero instrumentation, zero cloud, zero config.">
+<meta property="og:description" content="Dissect why Claude Code or Codex looped, drifted, or burned tokens — and run every live session from one kanban. npx agentfdr — zero instrumentation, zero cloud, zero config.">
 <meta property="og:image" content="https://kamihork.github.io/agentfdr/assets/social-preview.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
@@ -15,7 +15,7 @@
 <meta property="og:url" content="https://kamihork.github.io/agentfdr/">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="agentfdr — flight data recorder for local coding agents">
-<meta name="twitter:description" content="Dissect why Claude Code or Codex looped, drifted, or burned tokens. npx agentfdr — zero instrumentation, zero cloud, zero config.">
+<meta name="twitter:description" content="Dissect why Claude Code or Codex looped, drifted, or burned tokens — and run every live session from one kanban. npx agentfdr — zero instrumentation, zero cloud, zero config.">
 <meta name="twitter:image" content="https://kamihork.github.io/agentfdr/assets/social-preview.png">
 <link rel="icon" type="image/png" href="assets/logo.png">
 <style>
@@ -126,6 +126,11 @@
   .usage .txt p { color: var(--text-2); margin-top: 10px; }
   .usage img { width: 100%; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); }
 
+  .boardshot { margin-top: 30px; }
+  .boardshot img { width: 100%; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .boardgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 22px; }
+  .boardnote { color: var(--text-2); font-size: 14px; margin-top: 18px; }
+
   .cmds {
     background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
     margin-top: 34px; padding: 22px 26px; overflow-x: auto;
@@ -159,7 +164,7 @@
   <header class="hero">
     <img class="mark" src="assets/logo.png" alt="agentfdr logo">
     <h1 data-i18n="h1">The <em>black box</em> for your coding agent.</h1>
-    <p class="sub" data-i18n="sub">When Claude Code or Codex CLI loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact.</p>
+    <p class="sub" data-i18n="sub">When Claude Code or Codex CLI loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact. And while twenty sessions are running, one kanban shows which of them is waiting on you.</p>
     <div class="install mono"><span class="dollar">$</span><span id="cmd">npx agentfdr</span><button id="copy" data-i18n="copy">Copy</button></div>
     <div class="ctas">
       <a class="btn primary" href="https://github.com/kamihork/agentfdr" data-i18n="ctaGh">View on GitHub</a>
@@ -201,6 +206,20 @@
     </div>
   </section>
 
+  <section id="board">
+    <h2 class="sec" data-i18n="boardH">The control tower for parallel sessions.</h2>
+    <p class="seclead" data-i18n="boardLead">One session needs a flight recorder. Twenty need a control tower: which one is waiting on you, which two are editing the same file, how much of each account's plan is left. agentfdr board answers that on one screen — and lets you answer back.</p>
+    <div class="boardshot">
+      <img src="assets/screenshot-board-dark.png" alt="agentfdr board: needs-you, working, idle and recently-ended columns, one card per running Claude Code session with its task, current tool, cost, edited files, and approve/deny buttons; a banner warns that two sessions are editing the same file" data-i18n-alt="boardAlt">
+    </div>
+    <div class="boardgrid">
+      <div class="feat"><div class="ico">🚥</div><div class="t" data-i18n="b1t">See every session</div><p data-i18n="b1">Needs you (permission prompt, question, plan approval) · working · idle · recently ended — CLI and the Claude desktop app side by side, each card with the task you typed, what the agent is doing right now, cost since that prompt, and the files it touched. Group by state, project, account, or your own drag-and-drop lanes.</p></div>
+      <div class="feat"><div class="ico">🎛️</div><div class="t" data-i18n="b2t">Steer from the browser</div><p data-i18n="b2">tmux-hosted sessions take instructions, approve / deny a permission prompt, or stop a turn — two-click, never modal, refused if the session's state changed since the card was drawn. Start a new session in any repository from the same page.</p></div>
+      <div class="feat"><div class="ico">⚠️</div><div class="t" data-i18n="b3t">Know when they collide</div><p data-i18n="b3">Sessions on the same repository are grouped (worktrees resolve to their parent) and a banner names the files more than one live session is editing. Per-account 5-hour / 7-day plan limits sit at the top, straight from Claude Code's own status line.</p></div>
+    </div>
+    <p class="boardnote" data-i18n="boardNote">Reads the live-process registry and the tail of each transcript that Claude Code already keeps — no hooks, no daemon, milliseconds per refresh, loopback only.</p>
+  </section>
+
   <section>
     <h2 class="sec" data-i18n="usageH">Know what your plan is really burning.</h2>
     <div class="usage">
@@ -219,6 +238,7 @@
 <span class="k">agentfdr</span> list               <span class="c" data-i18n="c2"># all recorded sessions across projects</span>
 <span class="k">agentfdr</span> watch              <span class="c" data-i18n="c3"># live: follow the running session</span>
 <span class="k">agentfdr</span> blame 35cb18       <span class="c" data-i18n="c4"># markdown autopsy for an issue</span>
+<span class="k">agentfdr</span> board              <span class="c" data-i18n="c7"># every running session on one kanban; steer, launch</span>
 <span class="k">agentfdr</span> usage              <span class="c" data-i18n="c5"># plan burn: 5h window / daily / weekly</span>
 <span class="k">agentfdr</span> assert --no-loops --max-tokens 2M   <span class="c" data-i18n="c6"># CI gate</span></pre></div>
   </section>
@@ -250,7 +270,7 @@
 const I18N = {
   en: {
     h1raw: 'The <em>black box</em> for your coding agent.',
-    sub: 'When Claude Code or Codex CLI loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact.',
+    sub: 'When Claude Code or Codex CLI loops, drifts off-goal, or quietly burns two million tokens, agentfdr shows you why — turn by turn, after the fact. And while twenty sessions are running, one kanban shows which of them is waiting on you.',
     copy: 'Copy', copied: '✓ Copied',
     ctaGh: 'View on GitHub', ctaDocs: 'README',
     zeroesraw: '<b>Zero instrumentation</b> · <b>zero cloud</b> · <b>zero config</b> — it reads the transcripts Claude Code and Codex already write.',
@@ -272,6 +292,13 @@ const I18N = {
     f7t: 'Full-text search', f7: 'agentfdr search scans every prompt, reply, tool call and result across all your sessions — and the Search tab jumps straight to the matching turn.',
     f8t: 'Session diff', f8: 'agentfdr diff puts the failed attempt next to the successful retry: stats, anomalies, tool mix, and which files each one touched.',
     f9t: 'Live session board', f9: 'agentfdr board puts every running Claude Code session on one kanban — needs you / working / idle — with the current task, cost so far, and a warning when two sessions touch the same file. Send instructions, approve or stop tmux sessions from the page.',
+    boardH: 'The control tower for parallel sessions.',
+    boardLead: "One session needs a flight recorder. Twenty need a control tower: which one is waiting on you, which two are editing the same file, how much of each account's plan is left. agentfdr board answers that on one screen — and lets you answer back.",
+    boardAlt: 'agentfdr board: needs-you, working, idle and recently-ended columns, one card per running Claude Code session with its task, current tool, cost, edited files, and approve/deny buttons; a banner warns that two sessions are editing the same file',
+    b1t: 'See every session', b1: 'Needs you (permission prompt, question, plan approval) · working · idle · recently ended — CLI and the Claude desktop app side by side, each card with the task you typed, what the agent is doing right now, cost since that prompt, and the files it touched. Group by state, project, account, or your own drag-and-drop lanes.',
+    b2t: 'Steer from the browser', b2: "tmux-hosted sessions take instructions, approve / deny a permission prompt, or stop a turn — two-click, never modal, refused if the session's state changed since the card was drawn. Start a new session in any repository from the same page.",
+    b3t: 'Know when they collide', b3: "Sessions on the same repository are grouped (worktrees resolve to their parent) and a banner names the files more than one live session is editing. Per-account 5-hour / 7-day plan limits sit at the top, straight from Claude Code's own status line.",
+    boardNote: 'Reads the live-process registry and the tail of each transcript that Claude Code already keeps — no hooks, no daemon, milliseconds per refresh, loopback only.',
     usageH: 'Know what your plan is really burning.',
     u1: "agentfdr usage aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour window, daily history, and the rolling week — with a 12-month activity heatmap, per-model breakdown and estimated cost.",
     u2: "Your plan tier is auto-detected. Set budgets, calibrate them once against Claude Code's /usage screen, and get warning bars before you hit the wall.",
@@ -280,12 +307,13 @@ const I18N = {
     c1: "# open the newest session's timeline", c2: '# all recorded sessions across projects',
     c3: '# live: follow the running session', c4: '# markdown autopsy for an issue',
     c5: '# plan burn: 5h window / daily / weekly', c6: '# CI gate',
+    c7: '# every running session on one kanban; steer, launch',
     starH: 'Star history',
     langBtn: '日本語', htmlLang: 'en',
   },
   ja: {
     h1raw: 'コーディングエージェントの<br><em>ブラックボックス</em>。',
-    sub: 'Claude Code や Codex CLI がループした。ゴールから逸れた。気づけば200万トークンが溶けていた。agentfdr はその「なぜ」を、後からターン単位で解剖できるツールです。',
+    sub: 'Claude Code や Codex CLI がループした。ゴールから逸れた。気づけば200万トークンが溶けていた。agentfdr はその「なぜ」を、後からターン単位で解剖できるツールです。そして20本が同時に動いているときは、どれが自分を待っているかを1枚のカンバンで。',
     copy: 'コピー', copied: '✓ コピーしました',
     ctaGh: 'GitHub で見る', ctaDocs: '日本語 README',
     zeroesraw: '<b>計装ゼロ</b> · <b>クラウドゼロ</b> · <b>設定ゼロ</b> — Claude Code や Codex が既に書き出している transcript を読むだけ。',
@@ -307,6 +335,13 @@ const I18N = {
     f7t: '全文検索', f7: 'agentfdr search が全セッションのプロンプト・応答・ツール呼び出し・結果を横断検索。ビューアの検索タブからは該当ターンへ直接ジャンプできます。',
     f8t: 'セッション比較', f8: 'agentfdr diff が失敗した試行と成功した再試行を並べて比較。統計・異常・ツール構成・編集ファイルの違いが一目でわかります。',
     f9t: 'ライブセッションボード', f9: 'agentfdr board が稼働中の全 Claude Code セッションを1枚のカンバンに — 要対応 / 作業中 / 待機中。今の依頼、ここまでのコスト、2つのセッションが同じファイルに触れている時の警告付き。tmux 上のセッションには画面から指示・承認・停止を送れます。',
+    boardH: '並列セッションの管制塔。',
+    boardLead: '1本ならフライトレコーダーで足ります。20本になると管制塔が要る — どれが自分を待っていて、どの2本が同じファイルを触っていて、アカウントごとのプラン残量はどれだけか。agentfdr board はそれを1画面で答え、その場から指示も返せます。',
+    boardAlt: 'agentfdr のボード: 要対応・作業中・待機中・最近終了の列に、稼働中の Claude Code セッションが1枚ずつ。カードには依頼・実行中のツール・コスト・編集ファイル・承認/拒否ボタン。上部には2つのセッションが同じファイルを編集中という警告',
+    b1t: '全セッションを見る', b1: '要対応（許可プロンプト・質問・プラン承認）· 作業中 · 待機中 · 最近終了 — CLI と Claude デスクトップアプリを並べて。各カードに、入力した依頼、エージェントが今していること、その依頼以降のコスト、触ったファイル。状態別・プロジェクト別・アカウント別、あるいは自分でドラッグして作るレーンで。',
+    b2t: 'ブラウザから操作する', b2: 'tmux 上のセッションには指示の送信、許可プロンプトの承認 / 拒否、ターンの停止 — 2クリック確認でモーダルなし、カードを描いた後に状態が変わっていれば送らない。同じ画面から任意のリポジトリで新規セッションも起動できます。',
+    b3t: '衝突に気づく', b3: '同じリポジトリのセッションはまとめて表示（worktree は親に解決）し、複数のライブセッションが編集中のファイルをバナーで名指し。上部にはアカウントごとの5時間 / 7日のプラン上限を、Claude Code 自身の statusline から。',
+    boardNote: 'Claude Code が既に書いている稼働プロセスのレジストリと transcript の末尾だけを読みます — フックなし、デーモンなし、更新は数ミリ秒、ループバック限定。',
     usageH: 'プランを何にどれだけ使ったか、正確に。',
     u1: 'agentfdr usage は全プロジェクトの transcript を、サブスクリプションの計測単位と同じ形に集計します。現在の5時間ウィンドウ、日別履歴、直近7日。12ヶ月のアクティビティヒートマップ、モデル別内訳と推定コスト付きです。',
     u2: 'プラン種別は自動検出。予算を設定して Claude Code の /usage と一度見比べれば、上限に当たる前に警告バーが教えてくれます。',
@@ -315,6 +350,7 @@ const I18N = {
     c1: '# 最新セッションのタイムラインを開く', c2: '# 全プロジェクトのセッション一覧',
     c3: '# ライブ: 実行中セッションを追尾', c4: '# issue に貼れる Markdown 解剖レポート',
     c5: '# プラン消費: 5hウィンドウ/日別/週', c6: '# CI ゲート',
+    c7: '# 稼働中の全セッションを1枚のカンバンに。指示・起動',
     starH: 'Star History',
     langBtn: 'EN', htmlLang: 'ja',
   },
