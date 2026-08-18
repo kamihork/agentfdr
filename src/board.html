@@ -510,7 +510,9 @@ function acctTitle(s) {
 // Desktop cards from an account other than the CLI's get a visible marker; the
 // user's whole reason for the account badge is telling the two apart.
 function acctSuffix(s) {
-  if (s.account !== 'desktop' || s.accountEmail || !board?.accounts?.cli?.accountUuid) return '';
+  // Only when we KNOW the account and it differs from the CLI's — a desktop
+  // session without a store entry is "unknown", not "other".
+  if (s.account !== 'desktop' || s.accountEmail || !s.accountUuid || !board?.accounts?.cli?.accountUuid) return '';
   return ` · ${t().otherAccount}`;
 }
 function renderAccounts() {
