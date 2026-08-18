@@ -102,7 +102,10 @@ Tabs switch the main view: **Timeline / Turns / Prompts / Subagents / Usage / Co
 
 ## The board
 
-![Live session board: needs-you / working / idle columns, one card per running Claude Code session](https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-board-dark.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-board-light.png">
+  <img alt="Live session board: needs-you / working / idle columns, one card per running Claude Code session" src="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-board-dark.png">
+</picture>
 
 `agentfdr board` is the other half of the cockpit: not one session after the fact, but **every session that is running right now**. Claude Code registers each live process under `~/.claude/sessions/` — its working directory, whether it is busy, idle or waiting on a dialog, and (for the CLI) the tmux pane it runs in. The board joins that registry with the tail of each transcript and refreshes every few seconds:
 

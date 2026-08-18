@@ -102,7 +102,10 @@ agentfdr assert --no-loops --max-tokens 2M   # CI ゲート: 違反で exit 1
 
 ## ボード
 
-![ライブセッションボード: 要対応 / 作業中 / 待機中 の列に、稼働中の Claude Code セッションが1枚ずつ](https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-board-dark.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-board-light.png">
+  <img alt="ライブセッションボード: 要対応 / 作業中 / 待機中 の列に、稼働中の Claude Code セッションが1枚ずつ" src="https://raw.githubusercontent.com/kamihork/agentfdr/main/assets/screenshot-board-dark.png">
+</picture>
 
 `agentfdr board` はコックピットのもう半分です。事後に1セッションを調べるのではなく、**いま動いている全セッション**を見ます。Claude Code は稼働中のプロセスを `~/.claude/sessions/` に登録しています — 作業ディレクトリ、busy / idle / ダイアログ待ちの状態、そして(CLI なら)動いている tmux ペイン。ボードはこのレジストリと各トランスクリプトの末尾を突き合わせ、数秒ごとに更新します:
 

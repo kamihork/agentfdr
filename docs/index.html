@@ -34,14 +34,26 @@
     --wash: rgba(255, 255, 255, 0.06);
     --shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
   }
+  /* Theme: dark is the base palette. Light follows the system preference
+     unless the visitor forced dark with the toggle, and the toggle can force
+     light on a dark system. The choice persists in localStorage. */
   @media (prefers-color-scheme: light) {
-    :root {
+    :root:not([data-theme="dark"]) {
       --page: #f9f9f7; --surface: #fcfcfb; --text: #0b0b0b; --text-2: #52514e;
       --muted: #898781; --border: rgba(11, 11, 11, 0.10); --grid: #e1e0d9;
       --blue: #2a78d6; --green: #1baf7a; --amber: #eda100;
       --wash: rgba(11, 11, 11, 0.05); --shadow: 0 24px 80px rgba(30, 30, 25, 0.18);
     }
   }
+  :root[data-theme="light"] {
+    --page: #f9f9f7; --surface: #fcfcfb; --text: #0b0b0b; --text-2: #52514e;
+    --muted: #898781; --border: rgba(11, 11, 11, 0.10); --grid: #e1e0d9;
+    --blue: #2a78d6; --green: #1baf7a; --amber: #eda100;
+    --wash: rgba(11, 11, 11, 0.05); --shadow: 0 24px 80px rgba(30, 30, 25, 0.18);
+  }
+  :root { color-scheme: dark; }
+  :root[data-theme="light"] { color-scheme: light; }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { color-scheme: light; } }
   * { box-sizing: border-box; margin: 0; }
   html { scroll-behavior: smooth; }
   body {
@@ -158,6 +170,7 @@
     <div class="spacer"></div>
     <a class="nl" href="https://github.com/kamihork/agentfdr">GitHub</a>
     <a class="nl" href="https://www.npmjs.com/package/agentfdr">npm</a>
+    <button id="theme" aria-label="Theme" title="Light / dark">◐</button>
     <button id="lang" aria-label="Language">日本語</button>
   </nav>
 
@@ -172,10 +185,7 @@
     </div>
     <p class="zeroes" data-i18n="zeroes"><b>Zero instrumentation</b> · <b>zero cloud</b> · <b>zero config</b> — it reads the transcripts Claude Code and Codex already write.</p>
     <div class="shot">
-      <picture>
-        <source media="(prefers-color-scheme: light)" srcset="assets/screenshot-light.png">
-        <img src="assets/screenshot-dark.png" alt="agentfdr timeline of a real 200-turn session with anomaly flags and the turn dissection panel" data-i18n-alt="shotAlt">
-      </picture>
+      <img src="assets/screenshot-dark.png" data-dark="assets/screenshot-dark.png" data-light="assets/screenshot-light.png" alt="agentfdr timeline of a real 200-turn session with anomaly flags and the turn dissection panel" data-i18n-alt="shotAlt">
     </div>
   </header>
 
@@ -210,7 +220,7 @@
     <h2 class="sec" data-i18n="boardH">The control tower for parallel sessions.</h2>
     <p class="seclead" data-i18n="boardLead">One session needs a flight recorder. Twenty need a control tower: which one is waiting on you, which two are editing the same file, how much of each account's plan is left. agentfdr board answers that on one screen — and lets you answer back.</p>
     <div class="boardshot">
-      <img src="assets/screenshot-board-dark.png" alt="agentfdr board: needs-you, working, idle and recently-ended columns, one card per running Claude Code session with its task, current tool, cost, edited files, and approve/deny buttons; a banner warns that two sessions are editing the same file" data-i18n-alt="boardAlt">
+      <img src="assets/screenshot-board-dark.png" data-dark="assets/screenshot-board-dark.png" data-light="assets/screenshot-board-light.png" alt="agentfdr board: needs-you, working, idle and recently-ended columns, one card per running Claude Code session with its task, current tool, cost, edited files, and approve/deny buttons; a banner warns that two sessions are editing the same file" data-i18n-alt="boardAlt">
     </div>
     <div class="boardgrid">
       <div class="feat"><div class="ico">🚥</div><div class="t" data-i18n="b1t">See every session</div><p data-i18n="b1">Needs you (permission prompt, question, plan approval) · working · idle · recently ended — CLI and the Claude desktop app side by side, each card with the task you typed, what the agent is doing right now, cost since that prompt, and the files it touched. Group by state, project, account, or your own drag-and-drop lanes.</p></div>
@@ -227,7 +237,7 @@
         <p data-i18n="u1">agentfdr usage aggregates every project's transcripts into the same shape your subscription is metered in: the current 5-hour window, daily history, and the rolling week — with a per-model breakdown and estimated cost.</p>
         <p data-i18n="u2">Your plan tier is auto-detected. Set budgets, calibrate them once against Claude Code's /usage screen, and get warning bars before you hit the wall.</p>
       </div>
-      <img src="assets/screenshot-usage-dark.png" alt="plan usage panel" data-i18n-alt="usageAlt">
+      <img src="assets/screenshot-usage-dark.png" data-dark="assets/screenshot-usage-dark.png" data-light="assets/screenshot-usage-light.png" alt="plan usage panel" data-i18n-alt="usageAlt">
     </div>
   </section>
 
@@ -248,11 +258,10 @@
   <section id="starSection">
     <h2 class="sec" data-i18n="starH">Star history</h2>
     <a class="starhist" href="https://www.star-history.com/#kamihork/agentfdr&Date">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date&theme=dark">
-        <img alt="Star history chart" src="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date" loading="lazy"
-             onerror="document.getElementById('starSection').style.display='none'">
-      </picture>
+      <img alt="Star history chart" src="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date&theme=dark"
+           data-dark="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date&theme=dark"
+           data-light="https://api.star-history.com/svg?repos=kamihork/agentfdr&type=Date" loading="lazy"
+           onerror="document.getElementById('starSection').style.display='none'">
     </a>
   </section>
 
@@ -356,6 +365,35 @@ const I18N = {
   },
 };
 
+// Theme: follows the system unless the visitor toggled; persisted like the language.
+const mqLight = matchMedia('(prefers-color-scheme: light)');
+function effectiveTheme() {
+  const forced = document.documentElement.dataset.theme;
+  if (forced === 'light' || forced === 'dark') return forced;
+  return mqLight.matches ? 'light' : 'dark';
+}
+function applyTheme() {
+  const t = effectiveTheme();
+  for (const img of document.querySelectorAll('img[data-light][data-dark]')) {
+    const want = img.dataset[t];
+    if (img.getAttribute('src') !== want) img.setAttribute('src', want);
+  }
+  document.getElementById('theme').setAttribute('aria-pressed', String(Boolean(document.documentElement.dataset.theme)));
+}
+(() => {
+  // ?theme=dark|light deep-links a theme (and is what screenshots use); else the saved choice.
+  const q = new URLSearchParams(location.search).get('theme');
+  const saved = q === 'light' || q === 'dark' ? q : localStorage.getItem('agentfdr.lp.theme');
+  if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+})();
+document.getElementById('theme').addEventListener('click', () => {
+  const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem('agentfdr.lp.theme', next);
+  applyTheme();
+});
+mqLight.addEventListener('change', applyTheme);
+
 // English by default for a global audience; 日本語 via the header toggle (persisted).
 let lang = localStorage.getItem('agentfdr.lp.lang') || 'en';
 
@@ -392,6 +430,8 @@ document.getElementById('copy').addEventListener('click', async () => {
   }
   setTimeout(() => { btn.textContent = I18N[lang].copy; }, 1500);
 });
+
+applyTheme();
 
 apply();
 </script>
